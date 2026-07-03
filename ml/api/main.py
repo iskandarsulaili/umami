@@ -38,6 +38,7 @@ _next_page = None
 _funnel = None
 _intent = None
 _recommender = None
+_rage_click = None
 
 logger = logging.getLogger("umami-ml")
 
@@ -153,6 +154,13 @@ def get_models():
     
     return _next_page, _funnel, _intent, _recommender
 
+def get_rage_click():
+    global _rage_click
+    if _rage_click is None:
+        from ml.models.rage_click import RageClickDetector
+        _rage_click = RageClickDetector()
+    return _rage_click
+
 
 def get_extractor():
     return SessionDataExtractor(CONFIG.db.url)
@@ -183,11 +191,13 @@ async def health():
     
     # Check if models are loaded
     np, fu, it, re = get_models()
+    rc = get_rage_click()
     status["models"] = {
         "next_page_predictor": {"loaded": True, "trained": np.is_trained},
         "funnel_predictor": {"loaded": True, "trained": fu.is_trained},
         "session_intent": {"loaded": True, "trained": it.is_trained},
         "recommender": {"loaded": True, "trained": re.is_trained},
+        "rage_click_detector": {"loaded": True, "trained": rc.is_trained},
     }
     
     return status
@@ -277,6 +287,27 @@ async def recommend(req: RecommendRequest):
     except Exception as e:
         logger.error(f"Recommendation failed: {e}")
         raise HTTPException(500, str(e))
+
+
+class RageClickRequest(BaseModel):
+    website_id: str
+    session_id: Optional[str] = None
+    clicks: Optional[list[dict]] = None
+
+
+@app.post("/predict/rage-click")
+async def predict_rage_click(req: RageClickRequest):
+    """Detect user frustration signals from click/heatmap data"""
+    rc = get_rage_click()
+
+    if req.session_id:
+        result = rc.predict_session(req.session_id, req.website_id)
+    elif req.clicks:
+        result = rc.predict(req.clicks)
+    else:
+        raise HTTPException(400, "Provide session_id or clicks array")
+
+    return {"website_id": req.website_id, **result}
 
 
 # ============================================================

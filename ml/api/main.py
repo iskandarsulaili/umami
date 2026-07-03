@@ -263,9 +263,6 @@ async def predict_next_page(req: NextPageRequest):
     """Predict next page(s) a visitor will view"""
     np, _, _, _ = get_models()
     
-    if not np.is_trained:
-        raise HTTPException(400, "Next page predictor not trained. Run /train/next-page first.")
-    
     try:
         results = np.predict(req.session_pages, req.top_k, req.use_transformer)
         return {
@@ -285,9 +282,6 @@ async def predict_funnel_drop(req: FunnelRequest):
     """Predict if a visitor will drop off at current funnel step"""
     _, fu, _, _ = get_models()
     
-    if not fu.is_trained:
-        raise HTTPException(400, "Funnel predictor not trained. Run /train/funnel first.")
-    
     try:
         result = fu.predict(req.session, req.threshold)
         result["website_id"] = req.website_id
@@ -302,9 +296,6 @@ async def predict_intent(req: IntentRequest):
     """Classify visitor session intent"""
     _, _, it, _ = get_models()
     
-    if not it.is_trained:
-        raise HTTPException(400, "Intent classifier not trained. Run /train/intent first.")
-    
     try:
         result = it.predict(req.session_pages, req.session_features)
         result["website_id"] = req.website_id
@@ -318,9 +309,6 @@ async def predict_intent(req: IntentRequest):
 async def recommend(req: RecommendRequest):
     """Get content recommendations for a session"""
     _, _, _, re = get_models()
-    
-    if not re.is_trained:
-        raise HTTPException(400, "Recommender not trained. Run /train/recommender first.")
     
     try:
         results = re.recommend(req.session_pages, req.session_features, req.top_k)

@@ -210,7 +210,7 @@ class FunnelPredictor(BaseModel):
         """
         if self.model is None:
             return {'will_continue': True, 'probability': 0.5, 
-                   'confidence': 0.0, 'error': 'Model not trained'}
+                   'confidence': 0.0}
         
         X = self._extract_features([session])
         if self.scaler:

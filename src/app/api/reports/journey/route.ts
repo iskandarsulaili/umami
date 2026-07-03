@@ -43,8 +43,5 @@ export async function POST(request: Request) {
     // ML service unavailable — return SQL data only
   }
 
-  return json({
-    journeys: data,
-    ml: mlPredictions ? { next_pages: mlPredictions.predictions } : null,
-  });
+  return json(data);
 }

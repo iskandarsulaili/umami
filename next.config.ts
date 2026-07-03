@@ -22,6 +22,7 @@ const trackerScriptName = process.env.TRACKER_SCRIPT_NAME || '';
 const trackerScriptURL = process.env.TRACKER_SCRIPT_URL || '';
 const selfTrack = process.env.UMAMI_SELF_TRACK || '';
 const selfRecord = process.env.UMAMI_SELF_RECORD || '';
+const cspScriptSrc = process.env.CSP_SCRIPT_SRC || '';
 
 function getUrlOrigin(url: string) {
   try {
@@ -45,7 +46,7 @@ const connectSrc = ["'self'", 'https:', apiUrlOrigin].filter(Boolean).join(' ');
 const contentSecurityPolicy = `
   default-src 'self';
   img-src 'self' https: data: blob:;
-  script-src 'self' 'unsafe-eval' 'unsafe-inline';
+  script-src 'self' 'unsafe-eval' 'unsafe-inline'${cspScriptSrc ? ' ' + cspScriptSrc : ''};
   style-src 'self' 'unsafe-inline';
   connect-src ${connectSrc};
   frame-src 'self' http: https:;

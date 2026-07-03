@@ -45,8 +45,5 @@ export async function POST(request: Request) {
     // ML service unavailable
   }
 
-  return json({
-    funnel: data,
-    ml: mlPredictions ? { drop_off_probability: mlPredictions } : null,
-  });
+  return json(data);
 }

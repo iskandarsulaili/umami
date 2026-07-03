@@ -99,7 +99,8 @@ class MarkovChain:
         if not context:
             # Fall back to most popular pages
             total = sum(self.page_counts.values()) or 1.0
-            probs = [(p, c / total) for p, c in self.page_counts.most_common(top_k)]
+            sorted_pages = sorted(self.page_counts.items(), key=lambda x: -x[1])
+            probs = [(p, c / total) for p, c in sorted_pages]
             return probs[:top_k]
         
         scores = defaultdict(float)

@@ -366,6 +366,8 @@ class ClusterRequest(BaseModel):
 async def predict_cluster(req: ClusterRequest):
     """Predict visitor archetype for a session"""
     jc = get_journey_clusterer()
+    if not jc.is_trained:
+        raise HTTPException(400, "Journey clusterer not trained. Run training first.")
     result = jc.predict(req.session)
     return {"website_id": req.website_id, **result}
 

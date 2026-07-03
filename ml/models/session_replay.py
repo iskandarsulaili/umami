@@ -262,7 +262,14 @@ class SessionReplayAnalyzer(BaseModel):
             # Merge all chunks
             merged = {'session_id': session_id, 'events': b'', 'event_count': 0}
             for row in results:
-                merged['events'] += bytes(row['events'].tobytes()) if hasattr(row['events'], 'tobytes') else row['events']
+                ev = row['events']
+                if ev is not None:
+                    if hasattr(ev, 'tobytes'):
+                        merged['events'] += bytes(ev.tobytes())
+                    elif isinstance(ev, (bytes, bytearray)):
+                        merged['events'] += bytes(ev)
+                    elif isinstance(ev, str):
+                        merged['events'] += ev.encode()
                 merged['event_count'] += row['event_count']
             
             return self.analyze_session(merged)

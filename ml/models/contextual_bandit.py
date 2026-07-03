@@ -14,6 +14,7 @@ import os
 import json
 import logging
 import pickle
+import hashlib
 from typing import Optional
 from datetime import datetime
 from collections import defaultdict
@@ -126,9 +127,9 @@ class ContextualBandit(BaseModel):
         """Build context vector from session state."""
         features = []
         
-        # Current page embedding (simplified: one-hot page index)
+        # Current page embedding (simplified: deterministic hash)
         current_page = session.get('current_page', '/')
-        features.append(hash(current_page) % 1000 / 1000.0)
+        features.append(abs(hashlib.md5(current_page.encode()).digest()[0]) % 1000 / 1000.0)
         
         # Session depth
         features.append(min(session.get('session_depth', 0) / 50, 1.0))
@@ -148,9 +149,9 @@ class ContextualBandit(BaseModel):
         features.append(1 if browser == 'Firefox' else 0)
         features.append(1 if browser == 'Safari' else 0)
         
-        # Country (simplified)
+        # Country (simplified, deterministic)
         country = session.get('country', '')
-        features.append(hash(country) % 100 / 100.0)
+        features.append(abs(hashlib.md5(country.encode()).digest()[0]) % 100 / 100.0)
         
         # Session engagement
         features.append(min(session.get('pages_seen', 1) / 20, 1.0))

@@ -96,7 +96,16 @@ class RageClickDetector(BaseModel):
             return {}
         
         n_clicks = len(clicks)
-        timestamps = [c.get('created_at', 0) for c in clicks]
+        timestamps = []
+        for c in clicks:
+            ts = c.get('created_at', 0)
+            if hasattr(ts, 'total_seconds'):
+                timestamps.append(ts)
+            elif isinstance(ts, (int, float)):
+                # Assume Unix timestamp in seconds
+                timestamps.append(datetime.fromtimestamp(ts))
+            else:
+                timestamps.append(datetime.min)
         
         # Time-based features
         if len(timestamps) >= 2:

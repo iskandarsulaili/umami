@@ -233,6 +233,7 @@ class JourneyClusterer(BaseModel):
             min_samples=1,
             metric='euclidean',
             cluster_selection_epsilon=0.5,
+            prediction_data=True,
         )
         cluster_labels = self.cluster_model.fit_predict(X_umap)
         

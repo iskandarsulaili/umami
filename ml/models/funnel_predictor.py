@@ -66,6 +66,18 @@ class FunnelPredictor(BaseModel):
         - hour_of_day, day_of_week
         - is_returning_visitor
         """
+        # Collect all unique categorical values first
+        cat_fields = ['browser', 'os', 'device', 'screen', 'language',
+                     'country', 'region', 'utm_source', 'utm_medium']
+        if not self.label_encoders and SKLEARN_AVAILABLE:
+            for field in cat_fields:
+                all_vals = set()
+                for session in session_data:
+                    all_vals.add(str(session.get(field, 'unknown')))
+                all_vals.add('unknown')
+                self.label_encoders[field] = LabelEncoder()
+                self.label_encoders[field].fit(sorted(all_vals))
+        
         features = []
         
         for session in session_data:
@@ -83,16 +95,14 @@ class FunnelPredictor(BaseModel):
                 row.append(float(session.get(field, 0)))
             
             # Categorical features (label encode)
-            cat_fields = ['browser', 'os', 'device', 'screen', 'language',
-                         'country', 'region', 'utm_source', 'utm_medium']
             for field in cat_fields:
                 val = str(session.get(field, 'unknown'))
-                if field not in self.label_encoders:
-                    self.label_encoders[field] = LabelEncoder()
-                    self.label_encoders[field].fit([val, 'unknown'])
-                try:
-                    encoded = self.label_encoders[field].transform([val])[0]
-                except ValueError:
+                if field in self.label_encoders:
+                    try:
+                        encoded = self.label_encoders[field].transform([val])[0]
+                    except ValueError:
+                        encoded = 0
+                else:
                     encoded = 0
                 row.append(float(encoded))
             

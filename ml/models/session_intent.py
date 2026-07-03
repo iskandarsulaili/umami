@@ -178,7 +178,8 @@ class SessionIntentClassifier(BaseModel):
             raise ImportError("scikit-learn is required")
         
         # Encode labels
-        self.label_encoder.fit(self.intent_labels)
+        all_labels = list(set(self.intent_labels) | set(labels))
+        self.label_encoder.fit(all_labels)
         y = self.label_encoder.transform(labels)
         
         # Build feature matrix
@@ -245,10 +246,10 @@ class SessionIntentClassifier(BaseModel):
         tf = self._extract_text_features(pages)
         sf = self._extract_session_features(session)
         
-        if self.scaler:
+        if self.scaler is not None:
             sf = self.scaler.transform(sf.reshape(1, -1)).flatten()
         
-        X = np.concatenate([tf, sf]).reshape(1, -1)
+        X = np.concatenate([tf, sf.reshape(-1)]).reshape(1, -1)
         
         # Predict
         y_pred = self.classifier.predict(X)[0]

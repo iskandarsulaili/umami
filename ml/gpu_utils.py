@@ -27,8 +27,9 @@ except ImportError:
 def detect_best_gpu() -> Optional[int]:
     """
     Detect the best available GPU for ML inference.
-    Prefers Tesla P40 (24GB) over RTX 3060 (12GB) for model inference
-    since P40 has more memory.
+    Checks CUDA capability - PyTorch 2.9+ requires sm_70+ (Volta).
+    RTX 3060 (sm_86, 12GB) is primary. Tesla P40 (sm_61, 24GB) works 
+    with ONNX Runtime and XGBoost but not latest PyTorch.
     
     Returns:
         Optional[int]: Best GPU index, or None if no GPU available
@@ -45,23 +46,32 @@ def detect_best_gpu() -> Optional[int]:
     if n_gpus == 0:
         return None
     
-    # Find the GPU with most free memory
-    best_gpu = 0
+    # Check CUDA capability and pick the best compatible GPU
+    # PyTorch 2.9+ needs sm_70+; older GPUs (P40 sm_61) work via ONNX
+    best_gpu = None
     best_memory = 0
     
     for i in range(n_gpus):
         props = torch.cuda.get_device_properties(i)
         total_memory = props.total_memory
-        # Prefer Tesla P40 (around 24GB) over RTX 3060 (12GB) for inference
-        # RTX 3060 might be busy with other workloads
-        memory_gb = total_memory / 1e9
-        logger.info(f"GPU {i}: {torch.cuda.get_device_name(i)} - {memory_gb:.1f}GB")
+        major, minor = props.major, props.minor
+        capability = major * 10 + minor
         
-        if memory_gb > best_memory:
-            best_memory = memory_gb
+        logger.info(f"GPU {i}: {torch.cuda.get_device_name(i)} - "
+                   f"{total_memory/1e9:.1f}GB, CUDA cap={major}.{minor}")
+        
+        # PyTorch 2.9+ requires CC >= 7.0
+        if capability >= 70 and total_memory > best_memory:
+            best_memory = total_memory
             best_gpu = i
     
-    logger.info(f"Selected GPU {best_gpu}: {torch.cuda.get_device_name(best_gpu)}")
+    if best_gpu is not None:
+        logger.info(f"Selected GPU {best_gpu}: {torch.cuda.get_device_name(best_gpu)} "
+                   f"for PyTorch (CUDA capability >= 7.0)")
+    else:
+        logger.info("No GPU with CUDA capability >= 7.0 found for PyTorch. "
+                   "Older GPUs (P40) available via ONNX Runtime.")
+    
     return best_gpu
 
 

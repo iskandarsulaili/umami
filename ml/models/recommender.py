@@ -136,6 +136,7 @@ class Recommender(BaseModel):
         sequences: list[list[str]],
         epochs: int = 30,
         batch_size: int = 256,
+        website_id: Optional[str] = None,
     ):
         """
         Train the SessionEncoder using next-item prediction task.
@@ -215,8 +216,8 @@ class Recommender(BaseModel):
         
         self.session_encoder.eval()
         
-        # Generate page embeddings
-        self._build_page_embeddings()
+        # Generate page embeddings (sync to pgvector if website_id provided)
+        self._build_page_embeddings(website_id)
         
         self.is_trained = True
         logger.info("SessionEncoder training complete")

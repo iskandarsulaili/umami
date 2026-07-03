@@ -227,3 +227,7 @@ class ContextualBandit(BaseModel):
             arm_id: self.bandit.get_arm_stats(arm_id)
             for arm_id in self.bandit.arms
         }
+    
+    def predict(self, data: dict = None) -> dict:
+        """Return bandit stats as prediction."""
+        return self.get_arm_stats()

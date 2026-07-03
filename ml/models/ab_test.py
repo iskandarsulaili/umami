@@ -205,3 +205,7 @@ class ABTestFramework(BaseModel):
         exp = self.experiments.get(experiment_id)
         if exp:
             exp.is_active = False
+    
+    def predict(self, data: dict = None) -> dict:
+        """Return experiment results as prediction."""
+        return self.get_results(data.get('experiment_id') if data else None)

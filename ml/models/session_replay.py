@@ -269,3 +269,11 @@ class SessionReplayAnalyzer(BaseModel):
         except Exception as e:
             logger.error(f"Replay analysis failed: {e}")
             return {'error': str(e)}
+    
+    def predict(self, data: dict = None) -> dict:
+        """Run inference - analyze session replay."""
+        if data and 'session_id' in data and 'website_id' in data:
+            return self.analyze_session_from_db(data['session_id'], data['website_id'])
+        if data and 'events' in data:
+            return self.analyze_session(data)
+        return {'error': 'Provide session_id+website_id or events data'}

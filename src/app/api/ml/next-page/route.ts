@@ -23,9 +23,8 @@ export async function POST(request: Request) {
       top_k: topK || 10,
       use_transformer: useTransformer || false,
     });
-
     return json(data);
-  } catch (e) {
-    return json({ error: e.message, predictions: [] });
+  } catch (e: any) {
+    return json({ error: String(e.message || e) });
   }
 }

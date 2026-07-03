@@ -22,6 +22,6 @@ export async function POST(request: Request) {
     });
     return json(data);
   } catch (e: any) {
-    return json({ status: 'error', message: String(e.message || e) });
+    return json({ error: String(e.message || e) });
   }
 }

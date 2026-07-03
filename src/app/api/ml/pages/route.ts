@@ -18,6 +18,6 @@ export async function POST(request: Request) {
     const pages = (data || []).map((row: any) => row.x).filter(Boolean);
     return json({ pages });
   } catch (e: any) {
-    return json({ pages: [] });
+    return json({ error: String(e.message || e) });
   }
 }

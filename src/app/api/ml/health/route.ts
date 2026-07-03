@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     const data = await response.json();
     return json(data);
   } catch (e: any) {
-    return json({ status: 'unavailable', error: String(e.message || e) });
+    return json({ error: String(e.message || e) });
   }
 }
 

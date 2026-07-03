@@ -20,6 +20,6 @@ export async function POST(request: Request) {
     });
     return json(data);
   } catch (e: any) {
-    return json({ severity: 'none', error_loops: 0, dead_clicks: 0, form_struggles: 0, rapid_navigation: 0, total_events: 0 });
+    return json({ error: String(e.message || e) });
   }
 }

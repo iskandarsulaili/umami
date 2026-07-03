@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       top_k: topK || 20,
     });
     return json(data);
-  } catch (e) {
-    return json({ error: e.message, recommendations: [] });
+  } catch (e: any) {
+    return json({ error: String(e.message || e) });
   }
 }

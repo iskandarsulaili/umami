@@ -20,6 +20,6 @@ export async function POST(request: Request) {
     });
     return json(data);
   } catch (e: any) {
-    return json({ archetype: 'unclassified', description: '', probability: 0 });
+    return json({ error: String(e.message || e) });
   }
 }

@@ -17,6 +17,6 @@ export async function POST(request: Request) {
     const data = await getPerformanceStats(websiteId, {});
     return json(data);
   } catch (e: any) {
-    return json({ lcp: 0, inp: 0, cls: 0, fcp: 0, ttfb: 0, count: 0 });
+    return json({ error: String(e.message || e) });
   }
 }

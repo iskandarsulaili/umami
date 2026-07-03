@@ -10,7 +10,7 @@ import {
   UserPlus,
   Video,
 } from '@/components/icons';
-import { Funnel, Gauge, Lightning, Magnet, Money, Network, Path, Target } from '@/components/svg';
+import { Funnel, Gauge, Lightning, Lightbulb, Magnet, Money, Network, Path, Target } from '@/components/svg';
 import { useMessages } from './useMessages';
 import { useNavigation } from './useNavigation';
 
@@ -113,6 +113,12 @@ export function useWebsiteNavItems(websiteId: string) {
           label: t(labels.heatmaps),
           icon: <Flame />,
           path: renderPath('/heatmaps'),
+        },
+        {
+          id: 'ai-insights',
+          label: t(labels.aiInsights),
+          icon: <Lightbulb />,
+          path: renderPath('/ai-insights'),
         },
       ],
     },

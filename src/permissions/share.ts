@@ -13,6 +13,7 @@ export type ShareSection =
   | 'goals'
   | 'funnels'
   | 'journeys'
+  | 'ai-insights'
   | 'retention'
   | 'utm'
   | 'revenue'
@@ -29,6 +30,7 @@ const SHARE_SECTIONS: ShareSection[] = [
   'goals',
   'funnels',
   'journeys',
+  'ai-insights',
   'retention',
   'utm',
   'revenue',

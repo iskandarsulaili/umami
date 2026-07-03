@@ -60,3 +60,7 @@ yarn-error.log*
 /ml/**/*.npy
 /ml/.venv/
 /ml/*.egg-info/
+
+# Python cache
+__pycache__/
+*.pyc

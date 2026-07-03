@@ -1,14 +1,20 @@
 import { parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { canViewWebsiteSection } from '@/permissions';
-import { fetchFromML } from '@/lib/ml-client';
+
+const ML_API_URL = process.env.ML_API_URL || 'http://localhost:8001';
 
 export async function GET(request: Request) {
   const { auth, error } = await parseRequest(request);
   if (error) return error();
 
   try {
-    const data = await fetchFromML('/health', {});
+    const response = await fetch(`${ML_API_URL}/health`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-cache',
+    });
+    const data = await response.json();
     return json(data);
   } catch (e: any) {
     return json({ status: 'unavailable', error: String(e.message || e) });

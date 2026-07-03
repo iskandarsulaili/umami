@@ -49,6 +49,7 @@ _rage_click = None
 _journey_clusterer = None
 _bandit = None
 _ab_test = None
+_session_replay = None
 
 logger = logging.getLogger("umami-ml")
 
@@ -192,6 +193,13 @@ def get_ab_test():
         _ab_test = ABTestFramework()
     return _ab_test
 
+def get_session_replay():
+    global _session_replay
+    if _session_replay is None:
+        from ml.models.session_replay import SessionReplayAnalyzer
+        _session_replay = SessionReplayAnalyzer()
+    return _session_replay
+
 
 def get_extractor():
     return SessionDataExtractor(CONFIG.db.url)
@@ -226,6 +234,7 @@ async def health():
     jc = get_journey_clusterer()
     bd = get_bandit()
     ab = get_ab_test()
+    sr = get_session_replay()
     status["models"] = {
         "next_page_predictor": {"loaded": True, "trained": np.is_trained},
         "funnel_predictor": {"loaded": True, "trained": fu.is_trained},
@@ -235,6 +244,7 @@ async def health():
         "journey_clusterer": {"loaded": True, "trained": jc.is_trained},
         "contextual_bandit": {"loaded": True, "trained": bd.is_trained},
         "ab_test_framework": {"loaded": True, "trained": ab.is_trained},
+        "session_replay_analyzer": {"loaded": True, "trained": sr.is_trained},
     }
     
     return status
@@ -454,6 +464,19 @@ async def ab_test_all_results():
     """Get all experiment results"""
     ab = get_ab_test()
     return ab.get_results()
+
+
+class SessionReplayRequest(BaseModel):
+    website_id: str
+    session_id: str
+
+
+@app.post("/predict/session-replay")
+async def predict_session_replay(req: SessionReplayRequest):
+    """Analyze a session replay for UX frustration signals"""
+    sr = get_session_replay()
+    result = sr.analyze_session_from_db(req.session_id, req.website_id)
+    return {"website_id": req.website_id, **result}
 
 
 # ============================================================

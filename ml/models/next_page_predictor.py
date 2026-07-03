@@ -48,10 +48,16 @@ class MarkovChain:
     def __init__(self, max_order: int = 3, laplace_smoothing: float = 0.01):
         self.max_order = max_order
         self.laplacian = laplace_smoothing
-        # transitions[order][(page_1, ..., page_N)] = {next_page: count}
-        self.transitions: list[dict] = [defaultdict(lambda: defaultdict(float))]
-        self.page_counts: dict[str, float] = defaultdict(float)
+        self.transitions: list[dict] = []
+        self.page_counts: dict[str, float] = {}
         self.total_transitions = 0
+        self._init_transitions()
+
+    def _init_transitions(self):
+        """Initialize transitions structure as regular dicts (pickle-safe)."""
+        self.transitions = []
+        for _ in range(self.max_order):
+            self.transitions.append({})
     
     def fit(self, sequences: list[list[str]]):
         """Train Markov chain from page view sequences"""
@@ -62,21 +68,25 @@ class MarkovChain:
             for i in range(1, len(seq)):
                 current = seq[i]
                 prev = seq[i-1]
-                self.page_counts[current] += 1.0
-                self.page_counts[prev] += 1.0
+                self.page_counts[current] = self.page_counts.get(current, 0) + 1.0
+                self.page_counts[prev] = self.page_counts.get(prev, 0) + 1.0
                 self.total_transitions += 1
                 
                 # order-1 transitions
-                self.transitions[0][(prev,)][current] += 1.0
+                ctx = (prev,)
+                if ctx not in self.transitions[0]:
+                    self.transitions[0][ctx] = {}
+                self.transitions[0][ctx][current] = self.transitions[0][ctx].get(current, 0) + 1.0
                 
                 # higher-order transitions
                 for order in range(2, min(self.max_order, i) + 1):
-                    context = tuple(seq[i-order:i])
-                    if context not in self.transitions[0]:
-                        # Extend transitions list if needed
-                        while len(self.transitions) < order:
-                            self.transitions.append(defaultdict(lambda: defaultdict(float)))
-                    self.transitions[order-1][context][current] += 1.0
+                    ctx = tuple(seq[i-order:i])
+                    if len(self.transitions) < order:
+                        self.transitions.append({})
+                    if ctx not in self.transitions[order-1]:
+                        self.transitions[order-1][ctx] = {}
+                    self.transitions[order-1][ctx][current] = \
+                        self.transitions[order-1][ctx].get(current, 0) + 1.0
         
         logger.info(f"Markov chain trained: {len(self.page_counts)} pages, "
                     f"{self.total_transitions} transitions")
@@ -160,8 +170,13 @@ class PageTransformer(nn.Module):
         mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device) * float('-inf'), diagonal=1)
         
         output = self.transformer(embedded, mask=mask)
-        # Predict next page from last position
-        return self.output(output[:, -1, :])
+        # Return all positions (for training loss on each step)
+        return self.output(output)
+    
+    def predict_next(self, x: torch.Tensor) -> torch.Tensor:
+        """Return only the last position prediction for inference."""
+        all_logits = self.forward(x)
+        return all_logits[:, -1, :]
 
 
 class NextPagePredictor(BaseModel):
@@ -349,7 +364,7 @@ class NextPagePredictor(BaseModel):
         tensor = torch.tensor([indices], device=device)
         
         with torch.no_grad():
-            output = self.transformer(tensor)
+            output = self.transformer.predict_next(tensor)
             probs = F.softmax(output[0], dim=0)
         
         # Get top-k

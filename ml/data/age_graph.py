@@ -238,8 +238,9 @@ class AgeGraphClient:
         import psycopg2
         
         try:
+            # Use a fresh connection to avoid transaction state issues
             conn = psycopg2.connect(self.connection_string)
-            conn.autocommit = False
+            conn.autocommit = True
             cur = conn.cursor()
             
             # 1. Create Page vertices from unique URLs
@@ -260,13 +261,14 @@ class AgeGraphClient:
                 SELECT * FROM cypher('{self.graph_name}', $$
                     MERGE (p:Page {{url: '{safe_url}', website_id: '{website_id}'}})
                     RETURN p
-                $$) AS (v ag_catalog.vertex);
+                $$) AS (v ag_catalog.agtype);
                 """
                 try:
                     cur.execute(cypher)
                     page_count += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Page vertex failed for '{page}': {e}")
+                    conn.rollback()
             
             # 2. Build LEADS_TO edges from page transitions with weights
             cur.execute("""
@@ -297,18 +299,16 @@ class AgeGraphClient:
                 SELECT * FROM cypher('{self.graph_name}', $$
                     MATCH (p1:Page {{url: '{safe_src}', website_id: '{website_id}'}})
                     MATCH (p2:Page {{url: '{safe_tgt}', website_id: '{website_id}'}})
-                    MERGE (p1)-[r:LEADS_TO {{website_id: '{website_id}'}}]->(p2)
-                    SET r.count = CASE WHEN r.count IS NULL THEN {weight} ELSE r.count + {weight} END
+                    MERGE (p1)-[r:LEADS_TO {{website_id: '{website_id}', count: {weight}}}]->(p2)
                     RETURN r
-                $$) AS (e ag_catalog.edge);
+                $$) AS (e ag_catalog.agtype);
                 """
                 try:
                     cur.execute(cypher)
                     edge_count += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Edge failed {source}->{target}: {e}")
             
-            conn.commit()
             cur.close()
             conn.close()
             

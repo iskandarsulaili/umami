@@ -13,7 +13,7 @@ from pathlib import Path
 class DatabaseConfig:
     """PostgreSQL/TimescaleDB connection"""
     host: str = os.getenv("DATABASE_HOST", "localhost")
-    port: int = int(os.getenv("DATABASE_PORT", "5432"))
+    port: int = int(os.getenv("DATABASE_PORT", "5433"))
     dbname: str = os.getenv("DATABASE_NAME", "umami")
     user: str = os.getenv("DATABASE_USER", "umami")
     password: str = os.getenv("DATABASE_PASSWORD", "umami")

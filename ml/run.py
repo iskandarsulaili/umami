@@ -215,11 +215,28 @@ def train_models():
     # Train remaining models (rule-based or lightweight)
     for website_id in websites:
         try:
-            # JourneyClusterer
-            jc = JourneyClusterer()
-            jc.train()
-            jc.save()
-            logger.info(f"JourneyClusterer initialized for {website_id}")
+            # JourneyClusterer - needs session feature dicts
+            with SessionDataExtractor(CONFIG.db.url) as extractor:
+                sequences = extractor.get_session_sequences(
+                    website_id, start_date, end_date
+                )
+                if sequences:
+                    session_dicts = []
+                    for seq in sequences:
+                        d = {
+                            'pages': seq.pages,
+                            'duration_seconds': seq.duration_seconds,
+                            'device': getattr(seq, 'device', 'desktop'),
+                            'hour': getattr(seq, 'hour', 12),
+                            'is_weekend': getattr(seq, 'is_weekend', False),
+                            'n_referrers': getattr(seq, 'n_referrers', 0),
+                            'n_events': getattr(seq, 'n_events', 0),
+                        }
+                        session_dicts.append(d)
+                    jc = JourneyClusterer()
+                    jc.train(session_dicts)
+                    jc.save()
+                    logger.info(f"JourneyClusterer trained for {website_id}")
             
             # ContextualBandit
             cb = ContextualBandit()

@@ -167,7 +167,6 @@ class SessionDataExtractor:
         query = """
         SELECT 
             s.session_id,
-            s.visit_id,
             s.browser,
             s.os,
             s.device,
@@ -188,7 +187,7 @@ class SessionDataExtractor:
         JOIN website_event we ON s.session_id = we.session_id
         WHERE s.website_id = %s
           AND s.created_at BETWEEN %s AND %s
-        GROUP BY s.session_id, s.visit_id, s.browser, s.os, s.device,
+        GROUP BY s.session_id, s.browser, s.os, s.device,
                  s.screen, s.language, s.country, s.region, s.city
         """
         

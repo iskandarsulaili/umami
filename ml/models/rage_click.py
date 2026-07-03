@@ -100,11 +100,11 @@ class RageClickDetector(BaseModel):
         
         # Time-based features
         if len(timestamps) >= 2:
-            time_diffs = [timestamps[i+1] - timestamps[i] for i in range(len(timestamps)-1)]
+            time_diffs = [(timestamps[i+1] - timestamps[i]).total_seconds() for i in range(len(timestamps)-1)]
             avg_inter_click_time = sum(time_diffs) / len(time_diffs) if time_diffs else 0
             min_inter_click_time = min(time_diffs) if time_diffs else 0
             max_inter_click_time = max(time_diffs) if time_diffs else 0
-            total_duration = timestamps[-1] - timestamps[0] if len(timestamps) >= 2 else 0
+            total_duration = (timestamps[-1] - timestamps[0]).total_seconds() if len(timestamps) >= 2 else 0
         else:
             avg_inter_click_time = min_inter_click_time = max_inter_click_time = total_duration = 0
         

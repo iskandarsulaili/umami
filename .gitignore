@@ -52,3 +52,11 @@ yarn-error.log*
 *.env.*
 
 *.dev.yml
+
+# ML models (trained artifacts)
+/ml/models/saved/
+/ml/**/*.pkl
+/ml/**/*.onnx
+/ml/**/*.npy
+/ml/.venv/
+/ml/*.egg-info/

@@ -45,6 +45,7 @@ class SessionEncoder(nn.Module):
     GRU-based session encoder that produces fixed-dimension
     session embeddings from variable-length page sequences.
     GPU accelerated, exported to ONNX for serving.
+    Includes a decoder head for next-item prediction training.
     
     Reference: arxiv:1902.04864 (SBRS survey)
     """
@@ -58,6 +59,10 @@ class SessionEncoder(nn.Module):
         dropout: float = 0.2,
     ):
         super().__init__()
+        self.vocab_size = vocab_size
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
+        
         self.embedding = nn.Embedding(vocab_size + 2, embedding_dim, padding_idx=0)
         self.gru = nn.GRU(
             embedding_dim,
@@ -69,6 +74,8 @@ class SessionEncoder(nn.Module):
         )
         self.output_proj = nn.Linear(hidden_dim * 2, hidden_dim)
         self.dropout = nn.Dropout(dropout)
+        # Decoder head for next-item prediction during training
+        self.decoder = nn.Linear(hidden_dim, vocab_size + 1)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         embedded = self.dropout(self.embedding(x))
@@ -76,6 +83,12 @@ class SessionEncoder(nn.Module):
         # Concatenate forward and backward last hidden states
         last_hidden = torch.cat((hidden[-2], hidden[-1]), dim=1)
         return self.output_proj(last_hidden)
+    
+    def forward_with_logits(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass returning both embedding and next-item logits."""
+        emb = self.forward(x)
+        logits = self.decoder(emb)
+        return emb, logits
 
 
 class Recommender(BaseModel):
@@ -181,28 +194,13 @@ class Recommender(BaseModel):
                 targets = batch[:, -1]
                 
                 optimizer.zero_grad()
-                embeddings = self.session_encoder(inputs)
-                
-                # Project to vocabulary
-                logits = embeddings @ embeddings.T
-                
-                # Compute loss against target page embedding
-                loss = F.cross_entropy(logits[:1], targets[:1])
-                
-                # Alternative: use cosine similarity against all page embeddings
-                # Simple cross-entropy approach:
-                decoder = nn.Linear(
-                    CONFIG.training.hidden_dim,
-                    self.vocab_size + 1,
-                    device=device
-                )
-                logits = decoder(embeddings)
-                loss = F.cross_entropy(logits, targets)
+                embeddings, logits = self.session_encoder.forward_with_logits(inputs)
+                loss = F.cross_entropy(logits, targets, ignore_index=0)
                 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.session_encoder.parameters(), 1.0)
                 optimizer.step()
-                
+
                 total_loss += loss.item()
             
             if (epoch + 1) % 10 == 0:

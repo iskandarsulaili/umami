@@ -1,31 +1,20 @@
 -- Upgrades Umami to PostgreSQL 18 with TimescaleDB 2.28 and Apache AGE
 -- This migration enables PostgreSQL extensions and configures hypertables.
 -- TimescaleDB and AGE must be installed at the system level.
+-- NOTE: pg_stat_statements and AGE require superuser -- installed in migration 22+
 
 -- ============================================================
--- Step 1: Enable PostgreSQL 18 extensions
+-- Step 1: Enable PostgreSQL 18 extensions (runs as umami user)
 -- ============================================================
-
--- TimescaleDB (time-series hypertables)
-CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
-
--- Apache AGE (graph database for visitor journey analysis)
-CREATE EXTENSION IF NOT EXISTS age CASCADE;
 
 -- pgvector (vector similarity search for ML embeddings)
 CREATE EXTENSION IF NOT EXISTS vector CASCADE;
 
--- Query performance monitoring
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements CASCADE;
+-- pgcrypto (cryptographic functions -- already used by umami)
+CREATE EXTENSION IF NOT EXISTS pgcrypto CASCADE;
 
 -- ============================================================
--- Step 2: Create Apache AGE graph for analytics
--- ============================================================
-
-SELECT ag_catalog.create_graph('umami_analytics');
-
--- ============================================================
--- Step 3: Convert tables to TimescaleDB hypertables
+-- Step 2: Convert tables to TimescaleDB hypertables
 -- These tables are time-series heavy and benefit from
 -- automatic partitioning, compression, and continuous aggregates.
 -- ============================================================

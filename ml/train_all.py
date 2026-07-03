@@ -78,6 +78,96 @@ def train_for_website(website_id: str, days: int):
                 age.close()
         except Exception as e:
             logger.warning(f"  AGE sync skipped: {e}")
+        
+        # Train FunnelPredictor (XGBoost with GPU)
+        try:
+            with SessionDataExtractor(CONFIG.db.url) as ex:
+                sessions_df = ex.get_session_features(website_id, start, end)
+                if not sessions_df.empty:
+                    sessions = sessions_df.to_dict('records')
+                    labels = [1 if s.get('total_pageviews', 0) > 3 else 0 for s in sessions]
+                    fu = FunnelPredictor()
+                    fu.train(sessions, labels)
+                    fu.save()
+                    logger.info(f"  FunnelPredictor: {len(sessions)} sessions, "
+                               f"acc={fu.metadata.get('train_accuracy', 0):.3f}")
+        except Exception as e:
+            logger.warning(f"  FunnelPredictor skipped: {e}")
+        
+        # Train SessionIntentClassifier
+        try:
+            with SessionDataExtractor(CONFIG.db.url) as ex:
+                sessions_df = ex.get_session_features(website_id, start, end)
+                session_dict = {s['session_id']: s for s in sessions_df.to_dict('records')}
+                sf_list, pl_list, labels_list = [], [], []
+                for seq in sequences:
+                    if len(seq.pages) < 2:
+                        continue
+                    sf = session_dict.get(seq.session_id, {})
+                    sf['page_views'] = len(seq.pages)
+                    sf['session_duration'] = seq.duration_seconds
+                    sf_list.append(sf)
+                    pl_list.append(seq.pages)
+                    has_checkout = any('checkout' in p.lower() or 'cart' in p.lower() for p in seq.pages)
+                    has_pricing = any('pricing' in p.lower() or 'price' in p.lower() for p in seq.pages)
+                    has_support = any('support' in p.lower() or 'help' in p.lower() for p in seq.pages)
+                    if has_checkout:
+                        labels_list.append('ready_to_buy')
+                    elif has_pricing:
+                        labels_list.append('price_comparing')
+                    elif has_support:
+                        labels_list.append('support_seeking')
+                    elif seq.duration_seconds > 120:
+                        labels_list.append('researching')
+                    elif len(seq.pages) <= 2:
+                        labels_list.append('just_browsing')
+                    else:
+                        labels_list.append('content_consumption')
+                if len(set(labels_list)) >= 2:
+                    it = SessionIntentClassifier()
+                    it.train(sf_list, pl_list, labels_list)
+                    it.save()
+                    logger.info(f"  SessionIntentClassifier: {len(sf_list)} sessions, "
+                               f"acc={it.metadata.get('train_accuracy', 0):.3f}")
+        except Exception as e:
+            logger.warning(f"  SessionIntentClassifier skipped: {e}")
+        
+        # Train RageClickDetector
+        try:
+            import psycopg2
+            import psycopg2.extras
+            conn = psycopg2.connect(CONFIG.db.url)
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("""
+                SELECT session_id, visit_id,
+                       array_agg(ROW(x, y, page_x, page_y, scroll_pct,
+                               viewport_w, viewport_h, page_h, created_at)
+                               ORDER BY created_at) AS clicks
+                FROM heatmap_event
+                WHERE website_id = %s
+                  AND created_at BETWEEN %s AND %s
+                GROUP BY session_id, visit_id
+                HAVING COUNT(*) >= 2
+                LIMIT 5000
+            """, (website_id, start, end))
+            from ml.models.rage_click import RageClickDetector
+            rc = RageClickDetector()
+            click_sessions = []
+            for row in cur.fetchall():
+                clicks_raw = row['clicks']
+                clicks = [{'x': c[0], 'y': c[1], 'page_x': c[2], 'page_y': c[3],
+                           'scroll_pct': c[4], 'viewport_w': c[5], 'viewport_h': c[6],
+                           'page_h': c[7], 'created_at': c[8]} for c in clicks_raw]
+                features = rc.extract_click_features(clicks)
+                if features:
+                    click_sessions.append(features)
+            cur.close()
+            conn.close()
+            rc.train(click_sessions)
+            rc.save()
+            logger.info(f"  RageClickDetector: {len(click_sessions)} sessions")
+        except Exception as e:
+            logger.warning(f"  RageClickDetector skipped: {e}")
 
 
 def main():

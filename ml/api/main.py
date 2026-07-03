@@ -29,6 +29,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+try:
+    import psycopg2
+    import psycopg2.extras
+    HAS_PSYCOPG2 = True
+except ImportError:
+    HAS_PSYCOPG2 = False
+
 from ml.config import CONFIG
 from ml import gpu_utils
 from ml.data.session_sequence import SessionDataExtractor
@@ -485,6 +492,68 @@ async def train_recommender(req: TrainRecommenderRequest):
         }
     except Exception as e:
         logger.error(f"Recommender training failed: {e}")
+        raise HTTPException(500, str(e))
+
+
+class TrainRageClickRequest(BaseModel):
+    website_id: str
+    start_date: str
+    end_date: str
+
+
+@app.post("/train/rage-click")
+async def train_rage_click(req: TrainRageClickRequest):
+    """Train rage click detector from heatmap data"""
+    rc = get_rage_click()
+
+    try:
+        start = datetime.fromisoformat(req.start_date)
+        end = datetime.fromisoformat(req.end_date)
+
+        with get_extractor() as extractor:
+            conn = psycopg2.connect(CONFIG.db.url)
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+            cur.execute("""
+                SELECT session_id, visit_id,
+                       array_agg(ROW(x, y, page_x, page_y, scroll_pct,
+                               viewport_w, viewport_h, page_h, created_at)
+                               ORDER BY created_at) AS clicks
+                FROM heatmap_event
+                WHERE website_id = %s
+                  AND created_at BETWEEN %s AND %s
+                GROUP BY session_id, visit_id
+                HAVING COUNT(*) >= 2
+                LIMIT 5000
+            """, (req.website_id, start, end))
+
+            click_sessions = []
+            for row in cur.fetchall():
+                clicks_raw = row['clicks']
+                clicks = [
+                    {
+                        'x': c[0], 'y': c[1], 'page_x': c[2], 'page_y': c[3],
+                        'scroll_pct': c[4], 'viewport_w': c[5], 'viewport_h': c[6],
+                        'page_h': c[7], 'created_at': c[8],
+                    }
+                    for c in clicks_raw
+                ]
+                features = rc.extract_click_features(clicks)
+                if features:
+                    click_sessions.append(features)
+
+            cur.close()
+            conn.close()
+
+            rc.train(click_sessions)
+
+        return {
+            "status": "complete",
+            "model": "rage_click_detector",
+            "sessions_trained": len(click_sessions),
+        }
+    except Exception as e:
+        logger.error(f"Rage click training failed: {e}")
         raise HTTPException(500, str(e))
 
 

@@ -28,7 +28,7 @@ A detailed getting started guide can be found at [umami.is/docs](https://umami.i
 ### Requirements
 
 - A server with Node.js version 18.18+.
-- A PostgreSQL database version v12.14+.
+- A PostgreSQL database version v18.0+ with TimescaleDB 2.28+ and Apache AGE (optional).
 
 ### Get the source code and install packages
 

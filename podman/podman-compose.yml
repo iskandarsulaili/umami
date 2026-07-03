@@ -23,13 +23,19 @@ services:
 
   db:
     container_name: umami-db
-    image: docker.io/library/postgres:15-alpine
+    build:
+      context: .
+      dockerfile: db/Dockerfile
+    image: umami-db-pg18:latest
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - umami-db-data:/var/lib/postgresql/data:Z
+      - ./db/postgresql/init-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql
+      - ./db/postgresql/init-hypertables.sql:/docker-entrypoint-initdb.d/02-hypertables.sql
+      - ./db/postgresql/init-age.sql:/docker-entrypoint-initdb.d/03-age.sql
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]

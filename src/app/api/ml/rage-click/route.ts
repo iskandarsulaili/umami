@@ -1,5 +1,5 @@
 import { parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { json, unauthorized, serverError } from '@/lib/response';
 import { canViewWebsiteSection } from '@/permissions';
 import { fetchFromML } from '@/lib/ml-client';
 
@@ -28,6 +28,6 @@ export async function POST(request: Request) {
     }
     return json(data);
   } catch (e: any) {
-    return json({ error: String(e.message || e) });
+    return serverError(e);
   }
 }

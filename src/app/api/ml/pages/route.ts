@@ -1,5 +1,5 @@
 import { parseRequest } from '@/lib/request';
-import { json, unauthorized } from '@/lib/response';
+import { json, unauthorized, serverError } from '@/lib/response';
 import { canViewWebsiteSection } from '@/permissions';
 import { getPageviewMetrics } from '@/queries/sql';
 
@@ -18,6 +18,6 @@ export async function POST(request: Request) {
     const pages = (data || []).map((row: any) => row.x).filter(Boolean);
     return json({ pages });
   } catch (e: any) {
-    return json({ error: String(e.message || e) });
+    return serverError(e);
   }
 }

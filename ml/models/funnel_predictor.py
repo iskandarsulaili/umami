@@ -154,11 +154,15 @@ class FunnelPredictor(BaseModel):
             random_state=42,
         )
         
-        # Split for validation
-        from sklearn.model_selection import train_test_split
-        X_train, X_val, y_train, y_val = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
-        )
+        # Split for validation (handle small datasets)
+        if len(X) >= 10:
+            from sklearn.model_selection import train_test_split
+            X_train, X_val, y_train, y_val = train_test_split(
+                X, y, test_size=0.2, random_state=42, 
+                stratify=y if len(set(y)) > 1 else None
+            )
+        else:
+            X_train, X_val, y_train, y_val = X, X, y, y
         
         self.model.fit(
             X_train, y_train,
@@ -168,10 +172,12 @@ class FunnelPredictor(BaseModel):
         
         # Evaluate
         train_score = self.model.score(X_train, y_train)
-        val_score = self.model.score(X_val, y_val)
+        if len(X) >= 10:
+            val_score = self.model.score(X_val, y_val)
+        else:
+            val_score = train_score
         
         self.metadata['train_accuracy'] = float(train_score)
-        self.metadata['val_accuracy'] = float(val_score)
         self.metadata['n_estimators'] = self.model.n_estimators
         self.metadata['device'] = device
         

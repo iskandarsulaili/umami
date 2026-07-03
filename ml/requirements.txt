@@ -47,3 +47,6 @@ sentence-transformers>=5.6.0
 # Clustering
 umap-learn==0.5.12
 hdbscan==0.8.44
+
+# Statistics (A/B testing)
+scipy>=1.14.0

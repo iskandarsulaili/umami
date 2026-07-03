@@ -3,6 +3,7 @@ import { json, unauthorized } from '@/lib/response';
 import { reportResultSchema } from '@/lib/schema';
 import { canViewWebsiteSection } from '@/permissions';
 import { getJourney } from '@/queries/sql';
+import { fetchFromML } from '@/lib/ml-client';
 
 export async function POST(request: Request) {
   const { auth, body, error } = await parseRequest(request, reportResultSchema);
@@ -26,5 +27,24 @@ export async function POST(request: Request) {
 
   const data = await getJourney(websiteId, parameters, queryFilters);
 
-  return json(data);
+  // Enrich with ML predictions (best-effort, non-blocking)
+  let mlPredictions = null;
+  try {
+    const topPath = data?.[0]?.items?.[0];
+    if (topPath) {
+      mlPredictions = await fetchFromML('/predict/next-page', {
+        website_id: websiteId,
+        session_pages: [topPath],
+        top_k: 5,
+        use_transformer: false,
+      });
+    }
+  } catch {
+    // ML service unavailable — return SQL data only
+  }
+
+  return json({
+    journeys: data,
+    ml: mlPredictions ? { next_pages: mlPredictions.predictions } : null,
+  });
 }

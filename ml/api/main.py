@@ -48,6 +48,7 @@ _recommender = None
 _rage_click = None
 _journey_clusterer = None
 _bandit = None
+_ab_test = None
 
 logger = logging.getLogger("umami-ml")
 
@@ -184,6 +185,13 @@ def get_bandit():
         _bandit = ContextualBandit()
     return _bandit
 
+def get_ab_test():
+    global _ab_test
+    if _ab_test is None:
+        from ml.models.ab_test import ABTestFramework
+        _ab_test = ABTestFramework()
+    return _ab_test
+
 
 def get_extractor():
     return SessionDataExtractor(CONFIG.db.url)
@@ -217,6 +225,7 @@ async def health():
     rc = get_rage_click()
     jc = get_journey_clusterer()
     bd = get_bandit()
+    ab = get_ab_test()
     status["models"] = {
         "next_page_predictor": {"loaded": True, "trained": np.is_trained},
         "funnel_predictor": {"loaded": True, "trained": fu.is_trained},
@@ -225,6 +234,7 @@ async def health():
         "rage_click_detector": {"loaded": True, "trained": rc.is_trained},
         "journey_clusterer": {"loaded": True, "trained": jc.is_trained},
         "contextual_bandit": {"loaded": True, "trained": bd.is_trained},
+        "ab_test_framework": {"loaded": True, "trained": ab.is_trained},
     }
     
     return status
@@ -384,6 +394,66 @@ async def bandit_reward(req: BanditRewardRequest):
     bd = get_bandit()
     bd.record_reward(req.page, req.session, req.reward)
     return {"status": "recorded"}
+
+
+class ABTestCreateRequest(BaseModel):
+    experiment_id: str
+    name: str
+    variants: list[dict]
+    traffic_fraction: float = 1.0
+    min_sample_size: int = 100
+
+
+class ABTestAssignRequest(BaseModel):
+    experiment_id: str
+    visitor_id: str
+
+
+class ABTestRecordRequest(BaseModel):
+    experiment_id: str
+    variant_id: str
+    converted: bool
+
+
+@app.post("/ab-test/create")
+async def ab_test_create(req: ABTestCreateRequest):
+    """Create an A/B test experiment"""
+    ab = get_ab_test()
+    result = ab.create_experiment(
+        req.experiment_id, req.name, req.variants,
+        req.traffic_fraction, req.min_sample_size,
+    )
+    return {"status": "created", **result}
+
+
+@app.post("/ab-test/assign")
+async def ab_test_assign(req: ABTestAssignRequest):
+    """Assign a visitor to a variant"""
+    ab = get_ab_test()
+    variant = ab.assign(req.experiment_id, req.visitor_id)
+    return {"experiment_id": req.experiment_id, "variant_id": variant}
+
+
+@app.post("/ab-test/record")
+async def ab_test_record(req: ABTestRecordRequest):
+    """Record a conversion for a variant"""
+    ab = get_ab_test()
+    ab.record(req.experiment_id, req.variant_id, req.converted)
+    return {"status": "recorded"}
+
+
+@app.get("/ab-test/results/{experiment_id}")
+async def ab_test_results(experiment_id: str):
+    """Get experiment results with statistical significance"""
+    ab = get_ab_test()
+    return ab.get_results(experiment_id)
+
+
+@app.get("/ab-test/results")
+async def ab_test_all_results():
+    """Get all experiment results"""
+    ab = get_ab_test()
+    return ab.get_results()
 
 
 # ============================================================

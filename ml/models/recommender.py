@@ -19,8 +19,15 @@ from datetime import datetime, timedelta
 import numpy as np
 
 from .base import BaseModel
-from ..config import CONFIG
+from ..config import CONFIG, DatabaseConfig
 from .. import gpu_utils
+
+try:
+    import psycopg2
+    import psycopg2.extras
+    HAS_PSYCOPG2 = True
+except ImportError:
+    HAS_PSYCOPG2 = False
 
 logger = logging.getLogger(__name__)
 
@@ -214,8 +221,8 @@ class Recommender(BaseModel):
         self.is_trained = True
         logger.info("SessionEncoder training complete")
     
-    def _build_page_embeddings(self):
-        """Generate embeddings for all known pages"""
+    def _build_page_embeddings(self, website_id: Optional[str] = None):
+        """Generate embeddings for all known pages and sync to pgvector."""
         if self.session_encoder is None:
             return
         
@@ -223,17 +230,19 @@ class Recommender(BaseModel):
         self.page_embeddings = {}
         
         for page, idx in self.page_to_idx.items():
-            # Single-page "session" for embedding
             tensor = torch.tensor([[idx]], device=device)
             with torch.no_grad():
                 emb = self.session_encoder(tensor)
                 self.page_embeddings[page] = emb.cpu().numpy().flatten()
         
-        # Build ANN index
+        # Sync to pgvector
+        if HAS_PSYCOPG2 and website_id:
+            self._sync_to_pgvector(website_id)
+        
+        # In-memory ANN fallback
         if self.page_embeddings and SKLEARN_AVAILABLE:
             pages = list(self.page_embeddings.keys())
             vectors = np.array([self.page_embeddings[p] for p in pages])
-            
             self.ann_index = NearestNeighbors(
                 n_neighbors=min(50, len(pages)),
                 metric='cosine',
@@ -243,6 +252,107 @@ class Recommender(BaseModel):
             self.ann_page_order = pages
         
         logger.info(f"Built {len(self.page_embeddings)} page embeddings")
+    
+    def _sync_to_pgvector(self, website_id: str):
+        """Sync page embeddings to pgvector table in TimescaleDB."""
+        if not HAS_PSYCOPG2 or not self.page_embeddings:
+            return
+        
+        try:
+            conn = psycopg2.connect(CONFIG.db.url)
+            cur = conn.cursor()
+            
+            for page_url, embedding in self.page_embeddings.items():
+                emb_str = '[' + ','.join(f'{v:.6f}' for v in embedding) + ']'
+                cur.execute("""
+                    INSERT INTO page_embeddings (website_id, page_url, embedding, updated_at)
+                    VALUES (%s, %s, %s::vector, NOW())
+                    ON CONFLICT (website_id, page_url)
+                    DO UPDATE SET embedding = %s::vector, updated_at = NOW()
+                """, (website_id, page_url, emb_str, emb_str))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
+            logger.info(f"Synced {len(self.page_embeddings)} embeddings to pgvector")
+        except Exception as e:
+            logger.warning(f"pgvector sync failed (using in-memory fallback): {e}")
+    
+    def retrieve_candidates_pgvector(
+        self,
+        session_embedding: np.ndarray,
+        website_id: str,
+        top_k: int = 50,
+        exclude: set = None,
+    ) -> list[tuple[str, float]]:
+        """
+        Retrieve candidate items via pgvector ANN search.
+        Uses TimescaleDB's IVFFlat index for fast approximate nearest neighbor.
+        """
+        exclude = exclude or set()
+        if not HAS_PSYCOPG2 or website_id is None:
+            return self.retrieve_candidates_sklearn(session_embedding, top_k, exclude)
+        
+        try:
+            conn = psycopg2.connect(CONFIG.db.url)
+            cur = conn.cursor()
+            
+            emb_str = '[' + ','.join(f'{v:.6f}' for v in session_embedding) + ']'
+            
+            exclude_condition = ""
+            if exclude:
+                exclude_list = ", ".join(f"'{e.replace(chr(39), chr(39)+chr(39))}'" for e in exclude)
+                exclude_condition = f"AND page_url NOT IN ({exclude_list})"
+            
+            query = f"""
+                SELECT page_url, 1 - (embedding <=> %s::vector) AS similarity
+                FROM page_embeddings
+                WHERE website_id = %s {exclude_condition}
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+            """
+            cur.execute(query, (emb_str, website_id, emb_str, top_k))
+            results = [(row[0], float(row[1])) for row in cur.fetchall()]
+            cur.close()
+            conn.close()
+            return results
+        except Exception as e:
+            logger.warning(f"pgvector query failed, using sklearn fallback: {e}")
+            return self.retrieve_candidates_sklearn(session_embedding, top_k, exclude)
+    
+    def retrieve_candidates_sklearn(
+        self,
+        session_embedding: np.ndarray,
+        top_k: int = 50,
+        exclude: set = None,
+    ) -> list[tuple[str, float]]:
+        """Fallback: sklearn NearestNeighbors ANN (in-memory)."""
+        exclude = exclude or set()
+        
+        if self.ann_index is not None and self.ann_page_order:
+            distances, indices = self.ann_index.kneighbors(
+                session_embedding.reshape(1, -1),
+                n_neighbors=min(top_k * 2, len(self.ann_page_order)),
+            )
+            candidates = []
+            for idx, dist in zip(indices[0], distances[0]):
+                page = self.ann_page_order[idx]
+                if page not in exclude:
+                    candidates.append((page, float(1 - dist)))
+            return candidates[:top_k]
+        
+        if not self.page_embeddings:
+            return []
+        
+        similarities = []
+        for page, emb in self.page_embeddings.items():
+            if page in exclude:
+                continue
+            sim = float(np.dot(session_embedding, emb) / 
+                       (np.linalg.norm(session_embedding) * np.linalg.norm(emb) + 1e-8))
+            similarities.append((page, sim))
+        
+        return sorted(similarities, key=lambda x: -x[1])[:top_k]
     
     def encode_session(self, pages: list[str]) -> Optional[np.ndarray]:
         """Encode a session into an embedding vector"""

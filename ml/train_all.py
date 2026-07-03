@@ -22,6 +22,11 @@ from ml.models.next_page_predictor import NextPagePredictor
 from ml.models.funnel_predictor import FunnelPredictor
 from ml.models.session_intent import SessionIntentClassifier
 from ml.models.recommender import Recommender
+from ml.models.rage_click import RageClickDetector
+from ml.models.journey_clusterer import JourneyClusterer
+from ml.models.contextual_bandit import ContextualBandit
+from ml.models.ab_test import ABTestFramework
+from ml.models.session_replay import SessionReplayAnalyzer
 from ml.data.age_graph import AgeGraphClient
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -168,6 +173,42 @@ def train_for_website(website_id: str, days: int):
             logger.info(f"  RageClickDetector: {len(click_sessions)} sessions")
         except Exception as e:
             logger.warning(f"  RageClickDetector skipped: {e}")
+        
+        # Train JourneyClusterer (UMAP + HDBSCAN)
+        try:
+            jc = JourneyClusterer()
+            jc.train(page_sequences)
+            jc.save()
+            logger.info(f"  JourneyClusterer: {jc.n_clusters} clusters")
+        except Exception as e:
+            logger.warning(f"  JourneyClusterer skipped: {e}")
+        
+        # Train ContextualBandit (LinUCB)
+        try:
+            cb = ContextualBandit()
+            cb.train()
+            cb.save()
+            logger.info("  ContextualBandit: initialized")
+        except Exception as e:
+            logger.warning(f"  ContextualBandit skipped: {e}")
+        
+        # Train ABTestFramework (rule-based, no training needed)
+        try:
+            ab = ABTestFramework()
+            ab.train()
+            ab.save()
+            logger.info("  ABTestFramework: initialized")
+        except Exception as e:
+            logger.warning(f"  ABTestFramework skipped: {e}")
+        
+        # Train SessionReplayAnalyzer (rule-based, no training needed)
+        try:
+            sr = SessionReplayAnalyzer()
+            sr.train()
+            sr.save()
+            logger.info("  SessionReplayAnalyzer: initialized")
+        except Exception as e:
+            logger.warning(f"  SessionReplayAnalyzer skipped: {e}")
 
 
 def main():

@@ -123,6 +123,11 @@ def train_models():
     from ml.models.funnel_predictor import FunnelPredictor
     from ml.models.session_intent import SessionIntentClassifier
     from ml.models.recommender import Recommender
+    from ml.models.rage_click import RageClickDetector
+    from ml.models.journey_clusterer import JourneyClusterer
+    from ml.models.contextual_bandit import ContextualBandit
+    from ml.models.ab_test import ABTestFramework
+    from ml.models.session_replay import SessionReplayAnalyzer
     from ml.data.session_sequence import SessionDataExtractor
     
     for website_id in websites:
@@ -206,6 +211,35 @@ def train_models():
                     
         except Exception as e:
             logger.error(f"Training failed for {website_id}: {e}")
+    
+    # Train remaining models (rule-based or lightweight)
+    for website_id in websites:
+        try:
+            # JourneyClusterer
+            jc = JourneyClusterer()
+            jc.train()
+            jc.save()
+            logger.info(f"JourneyClusterer initialized for {website_id}")
+            
+            # ContextualBandit
+            cb = ContextualBandit()
+            cb.train()
+            cb.save()
+            logger.info(f"ContextualBandit initialized for {website_id}")
+            
+            # ABTestFramework
+            ab = ABTestFramework()
+            ab.train()
+            ab.save()
+            logger.info(f"ABTestFramework initialized for {website_id}")
+            
+            # SessionReplayAnalyzer
+            sr = SessionReplayAnalyzer()
+            sr.train()
+            sr.save()
+            logger.info(f"SessionReplayAnalyzer initialized for {website_id}")
+        except Exception as e:
+            logger.warning(f"Lightweight model init skipped for {website_id}: {e}")
     
     logger.info("=== Training complete ===")
 

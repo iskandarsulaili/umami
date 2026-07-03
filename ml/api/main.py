@@ -46,6 +46,8 @@ _funnel = None
 _intent = None
 _recommender = None
 _rage_click = None
+_journey_clusterer = None
+_bandit = None
 
 logger = logging.getLogger("umami-ml")
 
@@ -168,6 +170,20 @@ def get_rage_click():
         _rage_click = RageClickDetector()
     return _rage_click
 
+def get_journey_clusterer():
+    global _journey_clusterer
+    if _journey_clusterer is None:
+        from ml.models.journey_clusterer import JourneyClusterer
+        _journey_clusterer = JourneyClusterer()
+    return _journey_clusterer
+
+def get_bandit():
+    global _bandit
+    if _bandit is None:
+        from ml.models.contextual_bandit import ContextualBandit
+        _bandit = ContextualBandit()
+    return _bandit
+
 
 def get_extractor():
     return SessionDataExtractor(CONFIG.db.url)
@@ -199,12 +215,16 @@ async def health():
     # Check if models are loaded
     np, fu, it, re = get_models()
     rc = get_rage_click()
+    jc = get_journey_clusterer()
+    bd = get_bandit()
     status["models"] = {
         "next_page_predictor": {"loaded": True, "trained": np.is_trained},
         "funnel_predictor": {"loaded": True, "trained": fu.is_trained},
         "session_intent": {"loaded": True, "trained": it.is_trained},
         "recommender": {"loaded": True, "trained": re.is_trained},
         "rage_click_detector": {"loaded": True, "trained": rc.is_trained},
+        "journey_clusterer": {"loaded": True, "trained": jc.is_trained},
+        "contextual_bandit": {"loaded": True, "trained": bd.is_trained},
     }
     
     return status
@@ -315,6 +335,55 @@ async def predict_rage_click(req: RageClickRequest):
         raise HTTPException(400, "Provide session_id or clicks array")
 
     return {"website_id": req.website_id, **result}
+
+
+class ClusterRequest(BaseModel):
+    website_id: str
+    session: dict
+
+
+@app.post("/predict/cluster")
+async def predict_cluster(req: ClusterRequest):
+    """Predict visitor archetype for a session"""
+    jc = get_journey_clusterer()
+    result = jc.predict(req.session)
+    return {"website_id": req.website_id, **result}
+
+
+class BanditRecommendRequest(BaseModel):
+    website_id: str
+    session: dict
+    available_pages: list[str]
+    top_k: int = 5
+
+
+@app.post("/recommend/bandit")
+async def bandit_recommend(req: BanditRecommendRequest):
+    """Contextual bandit recommendations"""
+    bd = get_bandit()
+    if not bd.is_trained:
+        bd.train()
+    results = bd.recommend(req.session, req.available_pages, req.top_k)
+    return {
+        "website_id": req.website_id,
+        "recommendations": results,
+        "count": len(results),
+    }
+
+
+class BanditRewardRequest(BaseModel):
+    website_id: str
+    page: str
+    session: dict
+    reward: float
+
+
+@app.post("/recommend/bandit/reward")
+async def bandit_reward(req: BanditRewardRequest):
+    """Record reward for a bandit recommendation"""
+    bd = get_bandit()
+    bd.record_reward(req.page, req.session, req.reward)
+    return {"status": "recorded"}
 
 
 # ============================================================

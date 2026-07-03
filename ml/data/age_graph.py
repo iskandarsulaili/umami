@@ -93,22 +93,23 @@ class AgeGraphClient:
     def get_most_common_paths(self, website_id: str, limit: int = 50) -> list[dict]:
         """
         Use AGE graph traversal to find most common page-to-page paths.
-        
-        openCypher:
-        MATCH (p1:Page)-[r:LEADS_TO]->(p2:Page)
-        WHERE p1.website_id = $website_id
-        RETURN p1.url, p2.url, r.count
-        ORDER BY r.count DESC
-        LIMIT $limit
+        Uses agtype_object_field_text workaround for AGE 1.7 RC0 compatibility.
         """
         query = f"""
-        SELECT * FROM cypher('{self.graph_name}', $$
-            MATCH (p1:Page)-[r:LEADS_TO]->(p2:Page)
-            WHERE p1.website_id = '{website_id}'
-            RETURN p1.url AS source, p2.url AS target, r.count AS weight
-            ORDER BY r.count DESC
-            LIMIT {limit}
-        $$) AS (source text, target text, weight bigint);
+        WITH graph_result AS (
+            SELECT * FROM ag_catalog.cypher('{self.graph_name}', $q$
+                MATCH (p1:Page)-[r:LEADS_TO]->(p2:Page)
+                WHERE p1.website_id = '{website_id}'
+                RETURN p1, p2, r
+            $q$) AS (p1 ag_catalog.agtype, p2 ag_catalog.agtype, r ag_catalog.agtype)
+        )
+        SELECT 
+            ag_catalog.agtype_object_field_text(p1, 'url') AS source,
+            ag_catalog.agtype_object_field_text(p2, 'url') AS target,
+            ag_catalog.agtype_object_field_text(r, 'count')::bigint AS weight
+        FROM graph_result
+        ORDER BY weight DESC
+        LIMIT {limit}
         """
         
         try:

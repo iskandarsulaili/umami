@@ -1,7 +1,8 @@
 import { parseRequest } from '@/lib/request';
 import { json, unauthorized } from '@/lib/response';
 import { canViewWebsiteSection } from '@/permissions';
-import { fetchFromML } from '@/lib/ml-client';
+
+const ML_API_URL = process.env.ML_API_URL || 'http://localhost:8001';
 
 export async function POST(request: Request) {
   const { auth, body, error } = await parseRequest(request);
@@ -14,7 +15,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    const data = await fetchFromML('/ab-test/results', {});
+    const response = await fetch(`${ML_API_URL}/ab-test/results`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-cache',
+    });
+    const data = await response.json();
     return json(data);
   } catch (e: any) {
     return json({ error: String(e.message || e), results: {} });

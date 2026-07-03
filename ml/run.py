@@ -212,6 +212,43 @@ def train_models():
         except Exception as e:
             logger.error(f"Training failed for {website_id}: {e}")
     
+    # Train RageClickDetector from heatmap data
+    for website_id in websites:
+        try:
+            import psycopg2
+            import psycopg2.extras
+            conn = psycopg2.connect(CONFIG.db.url)
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("""
+                SELECT session_id, visit_id,
+                       array_agg(ROW(x, y, page_x, page_y, scroll_pct,
+                               viewport_w, viewport_h, page_h, created_at)
+                               ORDER BY created_at) AS clicks
+                FROM heatmap_event
+                WHERE website_id = %s
+                  AND created_at BETWEEN %s AND %s
+                GROUP BY session_id, visit_id
+                HAVING COUNT(*) >= 2
+                LIMIT 5000
+            """, (website_id, start_date, end_date))
+            rc = RageClickDetector()
+            click_sessions = []
+            for row in cur.fetchall():
+                clicks_raw = row['clicks']
+                clicks = [{'x': c[0], 'y': c[1], 'page_x': c[2], 'page_y': c[3],
+                           'scroll_pct': c[4], 'viewport_w': c[5], 'viewport_h': c[6],
+                           'page_h': c[7], 'created_at': c[8]} for c in clicks_raw]
+                features = rc.extract_click_features(clicks)
+                if features:
+                    click_sessions.append(features)
+            cur.close()
+            conn.close()
+            rc.train(click_sessions)
+            rc.save()
+            logger.info(f"RageClickDetector trained for {website_id}: {len(click_sessions)} sessions")
+        except Exception as e:
+            logger.warning(f"RageClickDetector skipped for {website_id}: {e}")
+    
     # Train remaining models (rule-based or lightweight)
     for website_id in websites:
         try:

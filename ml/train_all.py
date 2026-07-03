@@ -176,8 +176,21 @@ def train_for_website(website_id: str, days: int):
         
         # Train JourneyClusterer (UMAP + HDBSCAN)
         try:
+            # Build session feature dicts from sequences
+            session_dicts = []
+            for seq in sequences:
+                d = {
+                    'pages': seq.pages,
+                    'duration_seconds': seq.duration_seconds,
+                    'device': getattr(seq, 'device', 'desktop'),
+                    'hour': getattr(seq, 'hour', 12),
+                    'is_weekend': getattr(seq, 'is_weekend', False),
+                    'n_referrers': getattr(seq, 'n_referrers', 0),
+                    'n_events': getattr(seq, 'n_events', 0),
+                }
+                session_dicts.append(d)
             jc = JourneyClusterer()
-            jc.train(page_sequences)
+            jc.train(session_dicts)
             jc.save()
             logger.info(f"  JourneyClusterer: {jc.n_clusters} clusters")
         except Exception as e:

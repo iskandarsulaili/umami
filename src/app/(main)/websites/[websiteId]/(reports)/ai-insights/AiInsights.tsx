@@ -140,12 +140,14 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
         post('/ml/funnel-drop', { websiteId, session, threshold: 0.5 }),
         post('/ml/rage-click', { websiteId, clicks: [] }),
         post('/ml/pages', { websiteId }),
-        post('/ml/ab-test/results', {}),
+        post('/ml/cluster', { websiteId, session }),
+        post('/ml/session-replay', { websiteId, sessionId: '' }),
+        post('/ml/ab-test/results', { websiteId }),
         post('/ml/performance', { websiteId }),
         post('/ml/health', {}),
       ]);
 
-      const [recData, npData, intentData, funnelData, rageData, pagesData, abData, perfData, healthData] = results;
+      const [recData, npData, intentData, funnelData, rageData, pagesData, clusterData, replayData, abData, perfData, healthData] = results;
 
       if (recData?.status === 'fulfilled') setRecommendations(recData.value?.recommendations || []);
       if (npData?.status === 'fulfilled') setNextPages(npData.value?.predictions || []);
@@ -161,6 +163,8 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
             .catch(() => {});
         }
       }
+      if (clusterData?.status === 'fulfilled') setArchetype(clusterData.value);
+      if (replayData?.status === 'fulfilled') setReplay(replayData.value);
       if (abData?.status === 'fulfilled') {
         const d = abData.value;
         if (d && typeof d === 'object' && !Array.isArray(d)) setAbTests(Object.values(d).filter((r: any) => r?.experiment_id));

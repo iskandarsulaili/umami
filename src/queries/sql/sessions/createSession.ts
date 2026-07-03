@@ -50,7 +50,7 @@ export async function createSession(data: Prisma.SessionCreateInput) {
       {{distinctId}},
       {{createdAt}}
     )
-    on conflict (session_id) do nothing
+    on conflict (session_id, created_at) do nothing
     `,
     normalizedData,
     FUNCTION_NAME,

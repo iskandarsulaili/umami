@@ -26,9 +26,13 @@
 | **TimescaleDB 2.27** | 7 hypertables with auto-partitioning, continuous aggregates, data retention |
 | **Apache AGE 1.7** | Graph database for visitor journey analysis via openCypher |
 | **pgvector + pgvectorscale** | StreamingDiskANN index with SBQ compression for fast ANN search |
-| **5 ML Models (GPU)** | Next-page predictor, funnel drop-off, session intent, recommender, rage-click detection |
+| **9 ML Models (GPU)** | Next-page predictor, funnel drop-off, session intent, recommender, rage-click, journey clustering, contextual bandit, A/B testing, session replay analysis |
 | **AI Insights Dashboard** | ML-powered recommendations and predictions in the umami UI |
-| **GPU Acceleration** | RTX 3060 (PyTorch) + Tesla P40 (ONNX/XGBoost) with CPU fallback |
+| **ML Integrated into Reports** | Journey and funnel reports enriched with ML predictions |
+| **umami.recommend() JS API** | Client-side embed script for real-time recommendations |
+| **A/B Testing Framework** | Statistical experiment framework with chi-squared significance |
+| **Contextual Bandit** | Online learning for real-time content recommendations |
+| **GPU Acceleration** | RTX 3060 (PyTorch 2.12) + Tesla P40 (ONNX/XGBoost) with CPU fallback |
 
 ---
 
@@ -36,15 +40,19 @@
 
 ```
 umami App (Next.js port 3000)          ML Service (FastAPI port 8001)
-┌─────────────────────────────┐       ┌──────────────────────────────────┐
-│  /api/ml/* route handlers   │──────►│  /predict/next-page  (Markov+XGB)│
-│  (auth + proxy to 8001)     │       │  /predict/funnel-drop (XGBoost)  │
-│  AI Insights dashboard      │       │  /predict/intent     (BERT+RF)   │
-│  Journey/Funnel reports     │       │  /recommend          (GRU+ANN)   │
-└─────────────────────────────┘       │  /predict/rage-click (Isolation)  │
-                                      │  /train/*            (GPU loop)  │
-                                      │  /health              (GPU info) │
-                                      └───────────┬──────────────────────┘
+┌─────────────────────────────┐       ┌──────────────────────────────────────┐
+│  /api/ml/* route handlers   │──────►│  /predict/next-page  (Markov+Trans)  │
+│  (auth + proxy to 8001)     │       │  /predict/funnel-drop (XGBoost GPU)  │
+│  AI Insights dashboard      │       │  /predict/intent     (BERT+RF)       │
+│  Journey/Funnel reports     │       │  /recommend          (GRU+ANN)       │
+│  umami.recommend() embed    │       │  /predict/rage-click (Isolation)     │
+└─────────────────────────────┘       │  /predict/cluster   (UMAP+HDBSCAN)  │
+                                      │  /recommend/bandit  (LinUCB)        │
+                                      │  /ab-test/*         (Chi-squared)   │
+                                      │  /predict/session-replay (rrweb)    │
+                                      │  /train/*            (GPU loop)    │
+                                      │  /health              (GPU info)   │
+                                      └───────────┬──────────────────────────┘
                                                   │
                         ┌─────────────────────────┼──────────────────────┐
                         │                         │                      │
@@ -132,33 +140,46 @@ pip install -r ml/requirements.txt
 python3 ml/run.py
 ```
 
-### API Endpoints
+### API Endpoints (22 total)
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | GPU status, model loaded state |
+| `GET` | `/health` | GPU status, all 9 model loaded states |
 | `POST` | `/predict/next-page` | Predict next page(s) a visitor will view |
 | `POST` | `/predict/funnel-drop` | Predict drop-off probability at funnel steps |
 | `POST` | `/predict/intent` | Classify session intent (8 categories) |
 | `POST` | `/recommend` | Session-based content recommendations |
 | `POST` | `/predict/rage-click` | Detect user frustration from click patterns |
-| `POST` | `/train/next-page` | Train next-page predictor from session data |
+| `POST` | `/predict/cluster` | Predict visitor archetype (UMAP + HDBSCAN) |
+| `POST` | `/predict/session-replay` | Analyze rrweb session replay for UX signals |
+| `POST` | `/recommend/bandit` | Contextual bandit recommendations (online learning) |
+| `POST` | `/recommend/bandit/reward` | Record reward feedback for bandit |
+| `POST` | `/ab-test/create` | Create an A/B test experiment |
+| `POST` | `/ab-test/assign` | Assign visitor to variant (deterministic) |
+| `POST` | `/ab-test/record` | Record conversion for a variant |
+| `GET` | `/ab-test/results` | All experiment results with significance |
+| `GET` | `/ab-test/results/{id}` | Single experiment results |
+| `POST` | `/train/next-page` | Train next-page predictor |
 | `POST` | `/train/funnel` | Train funnel drop-off predictor |
 | `POST` | `/train/intent` | Train session intent classifier |
 | `POST` | `/train/recommender` | Train session-based recommender |
-| `POST` | `/train/rage-click` | Train rage-click detector from heatmap data |
+| `POST` | `/train/rage-click` | Train rage-click detector |
 | `POST` | `/models/save` | Save all trained models to disk |
 | `POST` | `/models/load` | Load all saved models from disk |
 
-### ML Models
+### ML Models (9 total)
 
-| Model | Algorithm | GPU | Training Data |
-|---|---|---|---|
-| **NextPagePredictor** | Markov chain + Transformer | PyTorch (RTX 3060) | Session page sequences |
-| **FunnelPredictor** | XGBoost (hist tree) | CUDA (P40 via ONNX) | Session features + labels |
-| **SessionIntentClassifier** | SentenceTransformer + RandomForest | PyTorch (RTX 3060) | Page URLs + session metadata |
-| **Recommender** | GRU encoder + ANN (pgvectorscale) | PyTorch (RTX 3060) | Session page sequences |
-| **RageClickDetector** | Isolation Forest + rule-based | CPU (sklearn) | Heatmap click coordinates |
+| # | Model | Algorithm | GPU | Training Data |
+|---|---|---|---|---|
+| 1 | **NextPagePredictor** | Markov chain + Transformer | PyTorch (RTX 3060) | Session page sequences |
+| 2 | **FunnelPredictor** | XGBoost (hist tree) | CUDA (P40 via ONNX) | Session features + labels |
+| 3 | **SessionIntentClassifier** | SentenceTransformer + RandomForest | PyTorch (RTX 3060) | Page URLs + session metadata |
+| 4 | **Recommender** | GRU encoder + ANN (pgvectorscale) | PyTorch (RTX 3060) | Session page sequences |
+| 5 | **RageClickDetector** | Isolation Forest + rule-based | CPU (sklearn) | Heatmap click coordinates |
+| 6 | **JourneyClusterer** | UMAP + HDBSCAN | CPU (sklearn) | Session feature vectors |
+| 7 | **ContextualBandit** | LinUCB (online learning) | CPU (numpy) | Real-time feedback |
+| 8 | **ABTestFramework** | Chi-squared significance | CPU (scipy) | Experiment results |
+| 9 | **SessionReplayAnalyzer** | rrweb event analysis | CPU | Session replay events |
 
 ### Training Pipeline
 
@@ -178,6 +199,32 @@ curl -X POST http://localhost:8001/train/next-page \
 |---|---|---|
 | `umami-age-sync` | Every 15 min | Sync TimescaleDB data to Apache AGE graph |
 | `umami-ml-train` | Daily 3 AM | Retrain all ML models from latest data |
+
+---
+
+## 🖥 umami.recommend() — Client-Side Embed API
+
+Drop this script on any page to get real-time content recommendations:
+
+```html
+<script src="https://your-umami-instance.com/api/ml/embed.js"
+  data-website-id="xxx"
+  data-top-k="5"
+  data-theme="light">
+</script>
+<div class="umami-recommendations"></div>
+```
+
+The script auto-discovers `<div class="umami-recommendations">` elements and populates them with recommended page links. Supports light/dark themes, click tracking via `sendBeacon`, and graceful fallback when the ML service is unavailable.
+
+### ML Integration into Existing Reports
+
+The journey and funnel reports are automatically enriched with ML predictions:
+
+- **Journey report** (`/api/reports/journey`) — returns `ml.next_pages` with predicted next pages for the top journey path
+- **Funnel report** (`/api/reports/funnel`) — returns `ml.drop_off_probability` with ML-based drop-off risk
+
+Both integrations are best-effort — if the ML service is down, the reports return SQL data only.
 
 ---
 
@@ -256,6 +303,23 @@ It displays:
 | `ML_MODEL_DIR` | `ml/models/saved` | Model storage path |
 | `ML_API_PORT` | `8001` | ML API server port |
 | `AGE_ENABLED` | `true` | Enable Apache AGE graph |
+
+---
+
+## 📦 Library Versions
+
+| Library | Version | Notes |
+|---|---|---|
+| PyTorch | 2.12.1 | CUDA 13.0, latest stable |
+| XGBoost | 3.3.0 | GPU support via CUDA |
+| scikit-learn | 1.9.0 | Latest stable |
+| umap-learn | 0.5.12 | Dimensionality reduction |
+| hdbscan | 0.8.44 | Hierarchical clustering |
+| ONNX Runtime | 1.27.0 | GPU via CUDA + TensorRT |
+| Transformers | 5.12.1 | HuggingFace ecosystem |
+| Sentence-Transformers | 5.6.0 | Text embeddings |
+| FastAPI | 0.139.0 | API framework |
+| Pandas | 3.0.3 | Data processing |
 
 ---
 

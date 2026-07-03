@@ -1,5 +1,5 @@
 'use client';
-import { Column, Grid, Row, Text } from '@umami/react-zen';
+import { Column, Grid, Row, Text, Button } from '@umami/react-zen';
 import { useMessages, useDateRange, useApi } from '@/components/hooks';
 import { useEffect, useState, useCallback } from 'react';
 import { LoadingPanel } from '@/components/common/LoadingPanel';
@@ -121,6 +121,8 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const [mlHealth, setMlHealth] = useState<MLHealth | null>(null);
   const [perfStats, setPerfStats] = useState<PerfStats | null>(null);
   const [availablePages, setAvailablePages] = useState<string[]>([]);
+  const [training, setTraining] = useState(false);
+  const [trainResult, setTrainResult] = useState<string | null>(null);
 
   const loadInsights = useCallback(async () => {
     setLoading(true);
@@ -179,6 +181,26 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   }, [websiteId, post]);
 
   useEffect(() => { loadInsights(); }, [loadInsights]);
+
+  const handleTrain = useCallback(async () => {
+    setTraining(true);
+    setTrainResult(null);
+    try {
+      const result = await post('/ml/train', { websiteId, days: 30 });
+      const ok = Object.values(result?.results || {}).filter((r: any) => r?.status === 'ok').length;
+      const total = Object.keys(result?.results || {}).length;
+      setTrainResult(`Trained ${ok}/${total} models`);
+    } catch (e: any) {
+      setTrainResult('Training failed: ' + (e.message || 'unknown error'));
+    } finally {
+      setTraining(false);
+      loadInsights(); // Refresh after training
+    }
+  }, [websiteId, post, loadInsights]);
+
+  const handleRefresh = useCallback(() => {
+    loadInsights();
+  }, [loadInsights]);
 
   const trainedCount = mlHealth?.models ? Object.values(mlHealth.models).filter((m: any) => m.trained).length : 0;
   const totalModels = mlHealth?.models ? Object.keys(mlHealth.models).length : 0;
@@ -388,6 +410,17 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
 
         {/* Row 6: ML System Health */}
         <Panel title={t(labels.mlSystemHealth)} description={t(labels.mlSystemHealthDesc)}>
+          <Row gap="2" paddingY="2" alignItems="center">
+            <Button variant="primary" onPress={handleTrain} isDisabled={training}>
+              {training ? 'Training...' : 'Train All Models'}
+            </Button>
+            <Button variant="quiet" onPress={handleRefresh}>
+              Refresh Insights
+            </Button>
+            {trainResult && (
+              <Text size="sm" color={trainResult.includes('failed') ? 'danger' : 'success'}>{trainResult}</Text>
+            )}
+          </Row>
           <Grid columns={{ base: '1fr', md: '1fr 1fr' }} gap="3">
             <Column gap="1" padding="2">
               <Text weight="bold" size="sm">{t(labels.gpu)}</Text>

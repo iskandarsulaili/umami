@@ -91,7 +91,7 @@ function fmtPct(val: number): string {
 }
 
 function perfRating(val: number, metric: string): { label: string; color: string } {
-  if (val == null || val <= 0) return { label: '-', color: 'muted' };
+  if (val == null || val <= 0) return { label: '', color: 'muted' };
   const thresholds: Record<string, [number, number]> = {
     lcp: [2500, 4000], inp: [200, 500], cls: [0.1, 0.25], fcp: [1800, 3000], ttfb: [800, 1800],
   };
@@ -195,7 +195,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   ];
 
   return (
-    <LoadingPanel data={recommendations.length || nextPages.length || intent || funnelDrop || rageClick || archetype || banditRecs.length || abTests.length || replay || perfStats || mlHealth} isLoading={loading} error={error}>
+    <LoadingPanel data={recommendations.length || nextPages.length || intent || funnelDrop || rageClick || archetype || banditRecs.length || abTests.length || replay || perfStats || mlHealth || true} isLoading={loading} error={error}>
       <Column gap="3" paddingY="4">
 
         {/* Summary Stats Bar */}

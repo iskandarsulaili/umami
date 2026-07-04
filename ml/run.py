@@ -260,15 +260,13 @@ def train_models():
                 if sequences:
                     session_dicts = []
                     for seq in sequences:
-                        d = {
-                            'pages': seq.pages,
-                            'duration_seconds': seq.duration_seconds,
-                            'device': getattr(seq, 'device', 'desktop'),
-                            'hour': getattr(seq, 'hour', 12),
-                            'is_weekend': getattr(seq, 'is_weekend', False),
-                            'n_referrers': getattr(seq, 'n_referrers', 0),
-                            'n_events': getattr(seq, 'n_events', 0),
-                        }
+                        d = seq.to_feature_dict()
+                        d['device'] = 'desktop'
+                        d['hour'] = 12
+                        d['is_weekend'] = False
+                        if seq.timestamps:
+                            d['hour'] = seq.timestamps[0].hour
+                            d['is_weekend'] = seq.timestamps[0].weekday() >= 5
                         session_dicts.append(d)
                     jc = JourneyClusterer()
                     jc.train(session_dicts)

@@ -66,7 +66,17 @@ interface ReplayResult {
 
 interface MLHealth {
   status: string;
-  gpu: { device: string; count: number; memory: Array<{ free: number; total: number; device: string }> };
+  gpu: {
+    count: number;
+    devices: Array<{
+      device: string;
+      index?: number;
+      free: number;
+      used: number;
+      total: number;
+      reserved?: number;
+    }>;
+  };
   models: Record<string, { loaded: boolean; trained: boolean }>;
 }
 
@@ -204,9 +214,12 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
 
   const trainedCount = mlHealth?.models ? Object.values(mlHealth.models).filter((m: any) => m.trained).length : 0;
   const totalModels = mlHealth?.models ? Object.keys(mlHealth.models).length : 0;
-  const gpuMem = mlHealth?.gpu?.memory?.[0];
-  const gpuFreeGb = gpuMem ? (gpuMem.free / 1073741824).toFixed(1) : '?';
-  const gpuTotalGb = gpuMem ? (gpuMem.total / 1073741824).toFixed(1) : '?';
+  const gpuDevices = mlHealth?.gpu?.devices || [];
+  const isCpu = gpuDevices.length === 0 || gpuDevices[0]?.device === 'cpu';
+  const gpuLabel = gpuDevices.length > 0 && !isCpu ? gpuDevices[0].device : (gpuDevices.length > 0 ? 'CPU' : 'N/A');
+  const gpuSummaryMem = gpuDevices.length > 0 && !isCpu ? gpuDevices[0] : null;
+  const summaryFreeGb = gpuSummaryMem ? (gpuSummaryMem.free / 1073741824).toFixed(1) : '?';
+  const summaryTotalGb = gpuSummaryMem ? (gpuSummaryMem.total / 1073741824).toFixed(1) : '?';
 
   const perfMetrics = [
     { key: 'lcp', label: t(labels.lcpFull), val: perfStats?.lcp, unit: 'ms' },
@@ -229,8 +242,8 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
           </Column>
           <Column padding="3" borderRadius backgroundColor="surface-raised" gap="1">
             <Text size="xs" color="muted" transform="uppercase">{t(labels.gpu)}</Text>
-            <Text size="xl" weight="bold">{mlHealth?.gpu?.device || t(labels.nA)}</Text>
-            <Text size="xs" color="muted">{t(labels.gbFree, { free: gpuFreeGb, total: gpuTotalGb })}</Text>
+            <Text size="xl" weight="bold">{gpuLabel}</Text>
+            <Text size="xs" color="muted">{isCpu ? t(labels.cpu) : t(labels.gbFree, { free: summaryFreeGb, total: summaryTotalGb })}</Text>
           </Column>
           <Column padding="3" borderRadius backgroundColor="surface-raised" gap="1">
             <Text size="xs" color="muted" transform="uppercase">{t(labels.lcp)}</Text>
@@ -424,9 +437,26 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
           <Grid columns={{ base: '1fr', md: '1fr 1fr' }} gap="3">
             <Column gap="1" padding="2">
               <Text weight="bold" size="sm">{t(labels.gpu)}</Text>
-              <Row gap="2" alignItems="center"><Text size="sm" color="muted">{t(labels.device)}:</Text><Text size="sm">{mlHealth?.gpu?.device || t(labels.nA)}</Text></Row>
-              <Row gap="2" alignItems="center"><Text size="sm" color="muted">{t(labels.count)}:</Text><Text size="sm">{mlHealth?.gpu?.count || 0}</Text></Row>
-              <Row gap="2" alignItems="center"><Text size="sm" color="muted">{t(labels.memory)}:</Text><Text size="sm">{t(labels.gbFree, { free: gpuFreeGb, total: gpuTotalGb })}</Text></Row>
+              {gpuDevices.length > 0 ? gpuDevices.map((dev: any, i: number) => {
+                const freeGb = dev.total > 0 ? (dev.free / 1073741824).toFixed(1) : '?';
+                const totalGb = dev.total > 0 ? (dev.total / 1073741824).toFixed(1) : '?';
+                const usedGb = dev.total > 0 ? (dev.used / 1073741824).toFixed(1) : '?';
+                const isDeviceCpu = dev.device === 'cpu';
+                return (
+                  <Column key={i} gap="1" paddingY="1" paddingX="2" borderRadius backgroundColor={i % 2 === 0 ? 'surface-raised' : undefined}>
+                    <Row gap="2" alignItems="center">
+                      <Text size="sm" color="muted">{t(labels.device)} #{i + 1}:</Text>
+                      <Text size="sm" weight="bold">{isDeviceCpu ? 'CPU' : dev.device}</Text>
+                    </Row>
+                    {!isDeviceCpu && (
+                      <Row gap="2" alignItems="center">
+                        <Text size="sm" color="muted">{t(labels.memory)}:</Text>
+                        <Text size="sm">{usedGb}/{totalGb} GB ({freeGb} free)</Text>
+                      </Row>
+                    )}
+                  </Column>
+                );
+              }) : <Text size="sm" color="muted">{t(labels.mlServiceNotAvailable)}</Text>}
             </Column>
             <Column gap="1" padding="2">
               <Text weight="bold" size="sm">{t(labels.models)}</Text>

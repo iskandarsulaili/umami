@@ -217,16 +217,17 @@ async def health():
         "timestamp": datetime.utcnow().isoformat(),
         "gpu": {
             "count": gpu_utils.GPU_COUNT,
-            "device": str(gpu_utils.DEVICE),
             "providers": gpu_utils.ONNX_PROVIDERS,
         },
     }
     
     if gpu_utils.GPU_COUNT > 0:
-        status["gpu"]["memory"] = [
+        status["gpu"]["devices"] = [
             gpu_utils.get_gpu_memory_info(i)
             for i in range(gpu_utils.GPU_COUNT)
         ]
+    else:
+        status["gpu"]["devices"] = [{"device": "cpu", "free": 0, "used": 0, "total": 0}]
     
     # Check if models are loaded
     np, fu, it, re = get_models()

@@ -274,13 +274,12 @@ class SessionDataExtractor:
             s.country,
             s.region,
             s.city,
-            s.referrer_domain,
-            s.utm_source,
-            s.utm_medium,
-            s.utm_campaign,
-            s.utm_term,
-            s.utm_content,
-            s.created_at AS session_start_time,
+            MAX(we.referrer_domain) AS referrer_domain,
+            MAX(we.utm_source) AS utm_source,
+            MAX(we.utm_medium) AS utm_medium,
+            MAX(we.utm_campaign) AS utm_campaign,
+            MAX(we.utm_term) AS utm_term,
+            MAX(we.utm_content) AS utm_content,
             EXTRACT(HOUR FROM s.created_at) AS hour_of_day,
             EXTRACT(DOW FROM s.created_at) AS day_of_week,
             COUNT(DISTINCT we.event_id) AS total_pageviews,
@@ -297,9 +296,7 @@ class SessionDataExtractor:
         WHERE s.website_id = %s
           AND s.created_at BETWEEN %s AND %s
         GROUP BY s.session_id, s.visit_id, s.browser, s.os, s.device,
-                 s.screen, s.language, s.country, s.region, s.city,
-                 s.referrer_domain, s.utm_source, s.utm_medium,
-                 s.utm_campaign, s.utm_term, s.utm_content, s.created_at
+                 s.screen, s.language, s.country, s.region, s.city, s.created_at
         """
         
         with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

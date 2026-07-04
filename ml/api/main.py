@@ -124,6 +124,40 @@ async def lifespan(app: FastAPI):
             info = gpu_utils.get_gpu_memory_info(i)
             logger.info(f"GPU {i}: {info['device']} - "
                        f"{info['free']/1e9:.1f}GB free / {info['total']/1e9:.1f}GB total")
+    
+    # Load saved models from disk (graceful if none exist yet)
+    np, fu, it, re = get_models()
+    rc = get_rage_click()
+    jc = get_journey_clusterer()
+    bd = get_bandit()
+    ab = get_ab_test()
+    sr = get_session_replay()
+    
+    models_to_load = [
+        ("next_page_predictor", np),
+        ("funnel_predictor", fu),
+        ("session_intent", it),
+        ("recommender", re),
+        ("rage_click_detector", rc),
+        ("journey_clusterer", jc),
+        ("contextual_bandit", bd),
+        ("ab_test_framework", ab),
+        ("session_replay_analyzer", sr),
+    ]
+    
+    loaded_count = 0
+    for name, model in models_to_load:
+        try:
+            model.load()
+            loaded_count += 1
+            logger.info(f"Loaded saved model: {name}")
+        except FileNotFoundError:
+            logger.info(f"No saved model found for {name}, starting untrained")
+        except Exception as e:
+            logger.warning(f"Failed to load {name}: {e}")
+    
+    logger.info(f"Loaded {loaded_count}/{len(models_to_load)} models from disk")
+    
     yield
 
 

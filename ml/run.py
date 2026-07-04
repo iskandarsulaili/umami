@@ -159,6 +159,7 @@ def train_models():
                 if len(long_sequences) >= 10:
                     rec_model = Recommender()
                     rec_model.train_session_encoder(long_sequences)
+                    rec_model._build_page_embeddings(website_id)  # Sync to pgvector
                     rec_model.save()
                 
                 # Get session features for funnel/intent
@@ -174,10 +175,12 @@ def train_models():
                     fu_model.train(sessions, labels)
                     fu_model.save()
                     
-                    # Train IntentClassifier
+                    # Train IntentClassifier (with richer features)
                     logger.info("  Training SessionIntentClassifier...")
                     session_dict = {s['session_id']: s for s in sessions}
+                    event_types = extractor.get_event_types_summary(website_id, start_date, end_date)
                     sf_list = []
+                    pl_list = []
                     labels_list = []
                     
                     for seq in sequences:
@@ -186,28 +189,46 @@ def train_models():
                         sf = session_dict.get(seq.session_id, {})
                         sf['page_views'] = len(seq.pages)
                         sf['session_duration'] = seq.duration_seconds
+                        sf['avg_time_on_page'] = seq.duration_seconds / max(1, len(seq.pages))
+                        sf['avg_lcp'] = seq.avg_lcp
+                        sf['avg_cls'] = seq.avg_cls
+                        sf['avg_inp'] = seq.avg_inp
+                        sf['unique_pages'] = seq.unique_pages
+                        sf['page_depth'] = seq.page_depth
+                        
+                        # Add custom event counts
+                        visit_events = event_types.get(seq.visit_id, {})
+                        for event_name, count in visit_events.items():
+                            sf[f'event_{event_name}'] = count
+                        
                         sf_list.append(sf)
+                        pl_list.append(seq.pages)
                         
-                        has_checkout = any('checkout' in p.lower() or 'cart' in p.lower() for p in seq.pages)
-                        has_pricing = any('pricing' in p.lower() or 'price' in p.lower() for p in seq.pages)
-                        has_support = any('support' in p.lower() or 'help' in p.lower() for p in seq.pages)
+                        has_checkout = seq.has_checkout
+                        has_pricing = seq.has_pricing
+                        has_support = seq.has_support
+                        has_custom_event = 'purchase' in visit_events or 'signup' in visit_events or 'order' in visit_events
                         
-                        if has_checkout:
+                        if has_custom_event or has_checkout:
                             labels_list.append('ready_to_buy')
                         elif has_pricing:
                             labels_list.append('price_comparing')
                         elif has_support:
                             labels_list.append('support_seeking')
-                        elif seq.duration_seconds > 120:
+                        elif seq.duration_seconds > 180:
                             labels_list.append('researching')
-                        elif len(seq.pages) <= 2:
+                        elif seq.length <= 2 and seq.duration_seconds < 30:
                             labels_list.append('just_browsing')
+                        elif any('/blog' in p.lower() or '/article' in p.lower() for p in seq.pages):
+                            labels_list.append('content_consumption')
                         else:
                             labels_list.append('content_consumption')
                     
-                    it_model = SessionIntentClassifier()
-                    it_model.train(sf_list, [s.pages for s in sequences], labels_list)
-                    it_model.save()
+                    unique_labels = set(labels_list)
+                    if len(unique_labels) >= 2:
+                        it_model = SessionIntentClassifier()
+                        it_model.train(sf_list, pl_list, labels_list)
+                        it_model.save()
                     
         except Exception as e:
             logger.error(f"Training failed for {website_id}: {e}")

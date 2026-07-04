@@ -313,10 +313,25 @@ async def recommend(req: RecommendRequest):
     
     try:
         results = re.recommend(req.session_pages, req.session_features, req.top_k)
+        
+        # Add AGE graph recommendations if available
+        age_recs = []
+        if req.session_pages:
+            try:
+                with get_extractor() as extractor:
+                    # Use the last page as current context
+                    current_page = req.session_pages[-1]
+                    age_recs = extractor.get_age_recommendations(
+                        req.website_id, current_page, req.top_k
+                    )
+            except Exception as age_err:
+                logger.debug(f"AGE recommendations unavailable: {age_err}")
+        
         return {
             "website_id": req.website_id,
             "session_pages": req.session_pages,
             "recommendations": results,
+            "age_recommendations": age_recs,
             "count": len(results),
             "is_cold_start": len(req.session_pages) < 2,
         }

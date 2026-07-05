@@ -18,7 +18,7 @@ import os
 import sys
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
@@ -57,7 +57,7 @@ def main():
     websites = get_websites(CONFIG.db.url)
     logger.info(f"Found {len(websites)} websites to sync")
     
-    end_date = datetime.utcnow()
+    end_date = datetime.now(timezone.utc).replace(tzinfo=None)
     start_date = end_date - timedelta(days=7)  # Last 7 days
     
     for website_id in websites:

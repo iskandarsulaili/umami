@@ -46,6 +46,13 @@ try:
 except ImportError:
     SKLEARN_AVAILABLE = False
 
+# Optional semantic embedder
+try:
+    from . import semantic_embedder
+    SEMANTIC_AVAILABLE = True
+except ImportError:
+    SEMANTIC_AVAILABLE = False
+
 
 class SessionEncoder(nn.Module):
     """
@@ -470,60 +477,186 @@ class Recommender(BaseModel):
         session_pages: list[str],
         session_features: Optional[dict] = None,
         top_k: int = 20,
+        mode: str = "token",
+        semantic_weight: float = 0.6,
+        website_id: Optional[str] = None,
     ) -> list[dict]:
         """
         Full recommendation pipeline for a session.
-        
+
         Args:
             session_pages: Pages visited in current session
             session_features: Optional session metadata dict
             top_k: Number of recommendations
-            
+            mode: 'token' (GRU), 'semantic' (SentenceTransformer), or 'hybrid'
+            semantic_weight: Weight for semantic scores in hybrid mode (0-1)
+            website_id: Required for 'semantic' and 'hybrid' modes
+
         Returns:
             Ranked list of {page, score, base_similarity} dicts
         """
+        if mode == "hybrid":
+            return self._hybrid_recommend(session_pages, session_features, top_k, semantic_weight, website_id)
+
+        if mode == "semantic" and SEMANTIC_AVAILABLE:
+            return self._semantic_recommend(session_pages, website_id or "", top_k)
+
+        # Default: token-based (GRU + pgvector)
+        return self._token_recommend(session_pages, session_features, top_k)
+
+    def _token_recommend(
+        self,
+        session_pages: list[str],
+        session_features: Optional[dict] = None,
+        top_k: int = 20,
+    ) -> list[dict]:
+        """Token-based recommendation using GRU session encoder + pgvector."""
         if not self.is_trained:
             logger.warning("Recommender not trained")
             return []
-        
-        # Cold-start: session too short, use popular pages
+
         if len(session_pages) < 2:
             return self._cold_start_recommend(top_k)
-        
-        # Stage 1: Encode session
+
         embedding = self.encode_session(session_pages)
         if embedding is None:
             return self._cold_start_recommend(top_k)
-        
-        # Stage 2: Retrieve candidates (exclude already-visited pages)
+
         exclude = set(session_pages)
         candidates = self.retrieve_candidates(embedding, top_k * 3, exclude)
-        
+
         if not candidates:
             return self._cold_start_recommend(top_k)
-        
-        # Stage 3: Rank candidates
+
         return self.rank_candidates(session_pages, candidates, session_features)[:top_k]
-    
+
+    def _semantic_recommend(
+        self,
+        session_pages: list[str],
+        website_id: str,
+        top_k: int = 20,
+    ) -> list[dict]:
+        """Semantic recommendation using SentenceTransformer embeddings."""
+        if not SEMANTIC_AVAILABLE:
+            logger.warning("Semantic embedder not available, falling back to token")
+            return self._token_recommend(session_pages, None, top_k)
+
+        exclude = set(session_pages) if session_pages else set()
+
+        # Build a query text from the session context
+        page_texts = [semantic_embedder.embed_page_url(p) for p in session_pages]
+        query_text = " [SEP] ".join(page_texts)
+
+        # Boost the most recent page
+        if session_pages:
+            last_text = semantic_embedder.embed_page_url(session_pages[-1])
+            query_text = f"{last_text} [SEP] {query_text}"
+
+        # Try pgvector first
+        candidates = semantic_embedder.retrieve_semantic_candidates(
+            query_text, website_id, top_k=top_k * 3, exclude=exclude,
+        )
+
+        if not candidates:
+            return self._cold_start_recommend(top_k)
+
+        return [
+            {'page': p, 'score': round(float(s), 4), 'base_similarity': round(float(s), 4)}
+            for p, s in candidates[:top_k]
+        ]
+
+    def _retrieve_semantic_fallback(
+        self,
+        query_text: str,
+        top_k: int,
+        exclude: set,
+    ) -> list[tuple[str, float]]:
+        """In-memory fallback for semantic retrieval using sklearn."""
+        if not self.page_embeddings or not SEMANTIC_AVAILABLE:
+            return []
+
+        # Use sklearn NearestNeighbors on stored GRU embeddings as fallback
+        if self.ann_index is not None and self.ann_page_order:
+            # Still use token-based ANN as fallback
+            return self.retrieve_candidates_sklearn(
+                np.zeros(256), top_k, exclude  # dummy — just returns popular
+            )
+        return []
+
+    def _hybrid_recommend(
+        self,
+        session_pages: list[str],
+        session_features: Optional[dict] = None,
+        top_k: int = 20,
+        semantic_weight: float = 0.6,
+        website_id: Optional[str] = None,
+    ) -> list[dict]:
+        """
+        Hybrid recommendation: fuses token-based + semantic scores.
+
+        Uses weighted score fusion to combine results from both modes.
+        """
+        token_weight = 1.0 - semantic_weight
+
+        # Get token-based results
+        token_results = self._token_recommend(session_pages, session_features, top_k * 2)
+        # Get semantic results (graceful if unavailable)
+        semantic_results = []
+        if SEMANTIC_AVAILABLE:
+            semantic_results = self._semantic_recommend(session_pages, website_id or "", top_k * 2)
+
+        # If one mode returned nothing, use the other exclusively
+        if not token_results:
+            return semantic_results[:top_k]
+        if not semantic_results:
+            return token_results[:top_k]
+
+        # Fuse scores using weighted average by rank position
+        all_pages = {}
+        for rank, r in enumerate(token_results):
+            all_pages[r['page']] = {
+                'page': r['page'],
+                'token_score': r['score'] * token_weight,
+                'semantic_score': 0.0,
+                'base_similarity': r['base_similarity'],
+            }
+        for rank, r in enumerate(semantic_results):
+            page = r['page']
+            if page not in all_pages:
+                all_pages[page] = {
+                    'page': page,
+                    'token_score': 0.0,
+                    'semantic_score': 0.0,
+                    'base_similarity': r['base_similarity'],
+                }
+            all_pages[page]['semantic_score'] = r['score'] * semantic_weight
+            all_pages[page]['base_similarity'] = max(
+                all_pages[page].get('base_similarity', 0), r['base_similarity']
+            )
+
+        # Final score: weighted sum
+        for p in all_pages.values():
+            p['score'] = round(p['token_score'] + p['semantic_score'], 4)
+
+        return sorted(all_pages.values(), key=lambda x: -x['score'])[:top_k]
+
     def _cold_start_recommend(self, top_k: int = 20) -> list[dict]:
-        """Fallback: recommend popular pages"""
+        """Fallback: recommend popular pages when not enough session data."""
         if not self.ann_page_order:
             return []
-        
-        # Just return top pages by frequency order
         return [
             {'page': p, 'score': 1.0 - i * 0.01, 'base_similarity': 0.0}
             for i, p in enumerate(self.ann_page_order[:top_k])
         ]
-    
-    def train(self, *args, **kwargs):
-        """Override base train - delegates to session_encoder training"""
-        return self.train_session_encoder(*args, **kwargs)
-    
+
     def predict(self, *args, **kwargs):
         """Override base predict - delegates to recommend"""
         return self.recommend(*args, **kwargs)
-    
+
+    def train(self, *args, **kwargs):
+        """Override base train - delegates to session_encoder training"""
+        return self.train_session_encoder(*args, **kwargs)
+
     def to_onnx(self, path: Optional[str] = None) -> str:
         """Export session encoder to ONNX"""
         if self.session_encoder is None:

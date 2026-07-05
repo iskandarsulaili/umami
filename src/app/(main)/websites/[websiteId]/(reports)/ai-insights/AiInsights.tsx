@@ -133,6 +133,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const [availablePages, setAvailablePages] = useState<string[]>([]);
   const [training, setTraining] = useState(false);
   const [trainResult, setTrainResult] = useState<string | null>(null);
+  const [recMode, setRecMode] = useState<string>('token');
 
   const loadInsights = useCallback(async () => {
     setLoading(true);
@@ -146,7 +147,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
       };
 
       const results = await Promise.allSettled([
-        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10 }),
+        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight: 0.6 }),
         post('/ml/next-page', { websiteId, sessionPages: ['/'], topK: 10, useTransformer: false }),
         post('/ml/intent', { websiteId, sessionPages: ['/'], sessionFeatures: session }),
         post('/ml/funnel-drop', { websiteId, session, threshold: 0.5 }),

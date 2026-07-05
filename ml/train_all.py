@@ -247,6 +247,19 @@ def train_for_website(website_id: str, days: int):
             logger.info("  SessionReplayAnalyzer: initialized")
         except Exception as e:
             logger.warning(f"  SessionReplayAnalyzer skipped: {e}")
+        
+        # Sync semantic embeddings (SentenceTransformer) — optional, graceful skip
+        try:
+            from ml.models.semantic_embedder import sync_semantic_embeddings
+            all_page_urls = list(set(p for seq in sequences for p in seq.pages))
+            if all_page_urls:
+                synced = sync_semantic_embeddings(website_id, all_page_urls)
+                if synced:
+                    logger.info(f"  Semantic embeddings: {synced} pages")
+        except ImportError:
+            logger.info("  Semantic embedder not available (sentence-transformers not installed)")
+        except Exception as e:
+            logger.debug(f"  Semantic embedding sync skipped: {e}")
 
 
 def main():

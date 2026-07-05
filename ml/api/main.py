@@ -78,6 +78,8 @@ class RecommendRequest(BaseModel):
     session_pages: list[str] = Field(default_factory=list)
     session_features: Optional[dict] = None
     top_k: int = Field(default=20, ge=1, le=100)
+    mode: str = Field(default="token", pattern="^(token|semantic|hybrid)$")
+    semantic_weight: float = Field(default=0.6, ge=0.0, le=1.0)
 
 
 class TrainNextPageRequest(BaseModel):
@@ -346,7 +348,10 @@ async def recommend(req: RecommendRequest):
     _, _, _, re = get_models()
     
     try:
-        results = re.recommend(req.session_pages, req.session_features, req.top_k)
+        results = re.recommend(
+            req.session_pages, req.session_features, req.top_k,
+            mode=req.mode, semantic_weight=req.semantic_weight, website_id=req.website_id,
+        )
         
         # Add AGE graph recommendations if available
         age_recs = []

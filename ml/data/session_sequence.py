@@ -265,7 +265,7 @@ class SessionDataExtractor:
         query = """
         SELECT 
             s.session_id,
-            s.visit_id,
+            we.visit_id,
             s.browser,
             s.os,
             s.device,
@@ -295,7 +295,7 @@ class SessionDataExtractor:
         JOIN website_event we ON s.session_id = we.session_id
         WHERE s.website_id = %s
           AND s.created_at BETWEEN %s AND %s
-        GROUP BY s.session_id, s.visit_id, s.browser, s.os, s.device,
+        GROUP BY s.session_id, we.visit_id, s.browser, s.os, s.device,
                  s.screen, s.language, s.country, s.region, s.city, s.created_at
         """
         
@@ -318,18 +318,18 @@ class SessionDataExtractor:
         """
         query = """
         SELECT 
-            ed.event_id,
+            ed.website_event_id AS event_id,
             we.visit_id,
             we.session_id,
             we.url_path,
             we.event_name,
-            ed.event_key,
+            ed.data_key AS event_key,
             ed.string_value,
             ed.number_value,
             ed.date_value,
             we.created_at
         FROM event_data ed
-        JOIN website_event we ON ed.event_id = we.event_id
+        JOIN website_event we ON ed.website_event_id = we.event_id
         WHERE we.website_id = %s
           AND we.created_at BETWEEN %s AND %s
           AND we.event_type = 2  -- custom events only

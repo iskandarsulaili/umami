@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Column, Row, Text, Button, Form, FormButtons, FormSubmitButton, TextField } from '@umami/react-zen';
+import { Column, Row, Text, Button, Form, FormSubmitButton, TextField } from '@umami/react-zen';
 import { useApi } from '@/components/hooks';
 
 export function MlApiKeys({ websiteId }: { websiteId: string }) {
@@ -40,8 +40,6 @@ export function MlApiKeys({ websiteId }: { websiteId: string }) {
     } catch { /* ignore */ }
   };
 
-  const exampleKey = newKey ? `umami_ml_${newKey.slice(0, 8)}...` : 'umami_ml_YOUR_KEY...';
-
   return (
     <Column gap="3">
       <Text size="sm" color="muted">
@@ -52,7 +50,7 @@ export function MlApiKeys({ websiteId }: { websiteId: string }) {
 
       <Form onSubmit={createKey}>
         <Row gap="2" alignItems="end">
-          <FormInput
+          <TextField
             label="Key Name"
             name="name"
             value={keyName}

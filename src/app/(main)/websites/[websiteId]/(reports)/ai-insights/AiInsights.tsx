@@ -133,7 +133,12 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const [availablePages, setAvailablePages] = useState<string[]>([]);
   const [training, setTraining] = useState(false);
   const [trainResult, setTrainResult] = useState<string | null>(null);
-  const [recMode, setRecMode] = useState<string>('token');
+  const [recMode, setRecMode] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('umami_rec_mode') || 'token';
+    }
+    return 'token';
+  });
 
   const loadInsights = useCallback(async () => {
     setLoading(true);
@@ -437,13 +442,13 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
           </Row>
           <Row gap="1" paddingY="1" alignItems="center">
             <Text size="xs" color="muted" transform="uppercase">Rec Mode:</Text>
-            <Button variant={recMode === 'token' ? 'primary' : 'quiet'} onPress={() => setRecMode('token')}>
+            <Button variant={recMode === 'token' ? 'primary' : 'quiet'} onPress={() => { localStorage.setItem('umami_rec_mode', 'token'); setRecMode('token'); }}>
               Token
             </Button>
-            <Button variant={recMode === 'semantic' ? 'primary' : 'quiet'} onPress={() => setRecMode('semantic')}>
+            <Button variant={recMode === 'semantic' ? 'primary' : 'quiet'} onPress={() => { localStorage.setItem('umami_rec_mode', 'semantic'); setRecMode('semantic'); }}>
               Semantic
             </Button>
-            <Button variant={recMode === 'hybrid' ? 'primary' : 'quiet'} onPress={() => setRecMode('hybrid')}>
+            <Button variant={recMode === 'hybrid' ? 'primary' : 'quiet'} onPress={() => { localStorage.setItem('umami_rec_mode', 'hybrid'); setRecMode('hybrid'); }}>
               Hybrid
             </Button>
           </Row>

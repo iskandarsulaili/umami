@@ -136,27 +136,27 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [recMode, setRecModeState] = useState<string>('token');
-  const [embModel, setEmbModelState] = useState<string>('minilm');
-  const [embMode, setEmbModeState] = useState<string>('local');
+  const [embModel, setEmbModelState] = useState<string>('all-MiniLM-L6-v2');
+  const [embProvider, setEmbProviderState] = useState<string>('local');
   const [embApiUrl, setEmbApiUrlState] = useState<string>('');
   const [embApiKey, setEmbApiKeyState] = useState<string>('');
   const [semanticWeight, setSemanticWeightState] = useState<number>(0.6);
-  const [embDim, setEmbDimState] = useState<number>(4096);
+  const [embDim, setEmbDimState] = useState<number>(1024);
   const [showKey, setShowKey] = useState(false);
 
   // Initialize preferences from server, fall back to localStorage
   useEffect(() => {
-    const keys = ['umami_rec_mode', 'umami_emb_model', 'umami_emb_mode', 'umami_emb_api_url', 'umami_emb_api_key', 'umami_semantic_weight', 'umami_emb_dim'];
+    const keys = ['umami_rec_mode', 'umami_emb_model', 'umami_emb_provider', 'umami_emb_api_url', 'umami_emb_api_key', 'umami_semantic_weight', 'umami_emb_dim'];
     const setters = {
       umami_rec_mode: setRecModeState,
       umami_emb_model: setEmbModelState,
-      umami_emb_mode: setEmbModeState,
+      umami_emb_provider: setEmbProviderState,
       umami_emb_api_url: setEmbApiUrlState,
       umami_emb_api_key: setEmbApiKeyState,
       umami_semantic_weight: (v: string) => setSemanticWeightState(parseFloat(v) || 0.6),
-      umami_emb_dim: (v: string) => setEmbDimState(parseInt(v) || 4096),
+      umami_emb_dim: (v: string) => setEmbDimState(parseInt(v) || 1024),
     };
-    const prefKeys = ['rec_mode', 'emb_model', 'emb_mode', 'emb_api_url', 'emb_api_key', 'semantic_weight', 'emb_dim'];
+    const prefKeys = ['rec_mode', 'emb_model', 'emb_provider', 'emb_api_url', 'emb_api_key', 'semantic_weight', 'emb_dim'];
 
     // Load from localStorage first (instant)
     for (const k of keys) {
@@ -181,14 +181,18 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
     post('/user/preferences', { key: 'rec_mode', value: mode }).catch(() => {});
   };
   const setEmbModel = (m: string) => {
+    if (embModel !== m && embModel !== 'all-MiniLM-L6-v2') {
+      const msg = `Changing model from "${embModel}" to "${m}".\n\nExisting embeddings for "${embModel}" will NOT work with "${m}".\nClick "Sync Embeddings" after changing to regenerate.\n\nProceed?`;
+      if (!window.confirm(msg)) return;
+    }
     setEmbModelState(m);
     localStorage.setItem('umami_emb_model', m);
     post('/user/preferences', { key: 'emb_model', value: m }).catch(() => {});
   };
-  const setEmbMode = (m: string) => {
-    setEmbModeState(m);
-    localStorage.setItem('umami_emb_mode', m);
-    post('/user/preferences', { key: 'emb_mode', value: m }).catch(() => {});
+  const setEmbProvider = (p: string) => {
+    setEmbProviderState(p);
+    localStorage.setItem('umami_emb_provider', p);
+    post('/user/preferences', { key: 'emb_provider', value: p }).catch(() => {});
   };
   const setEmbApiUrl = (v: string) => {
     setEmbApiUrlState(v);
@@ -227,7 +231,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
       };
 
       const results = await Promise.allSettled([
-        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight, embeddingModel: embModel, embeddingMode: embMode, embeddingDim: embDim, embeddingApiUrl: embApiUrl, embeddingApiKey: embApiKey }),
+        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight, embeddingModel: embModel, embeddingMode, embeddingDim: embDim, embeddingApiUrl: embApiUrl, embeddingApiKey: embApiKey }),
         post('/ml/next-page', { websiteId, sessionPages: ['/'], topK: 10, useTransformer: false }),
         post('/ml/intent', { websiteId, sessionPages: ['/'], sessionFeatures: session }),
         post('/ml/funnel-drop', { websiteId, session, threshold: 0.5 }),
@@ -300,15 +304,15 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
       const result = await post('/ml/embeddings/sync', {
         websiteId,
         model: embModel,
-        mode: embMode,
+        mode: embProvider,
       });
-      setSyncResult(`Indexed ${result?.synced || 0} pages (${embModel}, ${embMode})`);
+      setSyncResult(`Indexed ${result?.synced || 0} pages (${embModel}, ${embProvider})`);
     } catch (e: any) {
       setSyncResult('Sync failed: ' + (e.message || 'unknown error'));
     } finally {
       setSyncing(false);
     }
-  }, [websiteId, post, embModel, embMode]);
+  }, [websiteId, post, embModel, embProvider]);
 
   const switchModel = (newModel: string) => {
     if (embApiKey || embApiUrl) {
@@ -517,7 +521,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
                   <Text weight="bold" size="sm">{test.name}</Text>
                   {test.variants?.map((v) => (
                     <Row key={v.variant_id} gap="3" alignItems="center" paddingY="1">
-                      <Text size="sm" weight="bold" minWidth="100px">{v.variant_id}</Text>
+                      <div style={{ minWidth: '100px' }}><Text size="sm" weight="bold">{v.variant_id}</Text></div>
                       <Text size="sm">{(v.conversion_rate != null ? (v.conversion_rate * 100).toFixed(1) : '?')}%</Text>
                       {v.lift_pct != null && v.lift_pct !== 0 && (
                         <Text size="xs" color={v.lift_pct > 0 ? 'success' : 'danger'}>
@@ -581,26 +585,38 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
             </Row>
           )}
           <Row gap="1" paddingY="1" alignItems="center" wrap="wrap">
-            <Text size="xs" color="muted" transform="uppercase">Model:</Text>
-            <Button variant={embModel === 'minilm' ? 'primary' : 'quiet'} onPress={() => switchModel('minilm')}>
-              MiniLM (384d)
-            </Button>
-            <Button variant={embModel === 'qwen3' ? 'primary' : 'quiet'} onPress={() => switchModel('qwen3')}>
-              Qwen3 (4096d)
-            </Button>
-            <Text size="xs" color="muted" style={{ paddingLeft: 4, paddingRight: 4 }}>|</Text>
-            <Text size="xs" color="muted" transform="uppercase">Mode:</Text>
-            <Button variant={embMode === 'local' ? 'primary' : 'quiet'} onPress={() => switchMode('local')}>
+            <Text size="xs" color="muted" transform="uppercase">Provider:</Text>
+            <Button variant={embProvider === 'local' ? 'primary' : 'quiet'} onPress={() => setEmbProvider('local')}>
               Local
             </Button>
-            <Button variant={embMode === 'cloud' ? 'primary' : 'quiet'} onPress={() => switchMode('cloud')}>
-              Cloud
+            <Button variant={embProvider === 'openai' ? 'primary' : 'quiet'} onPress={() => setEmbProvider('openai')}>
+              OpenAI
+            </Button>
+            <Button variant={embProvider === 'gemini' ? 'primary' : 'quiet'} onPress={() => setEmbProvider('gemini')}>
+              Gemini
+            </Button>
+            <Button variant={embProvider === 'cloud' ? 'primary' : 'quiet'} onPress={() => setEmbProvider('cloud')}>
+              Cloud API
             </Button>
           </Row>
-          {embMode === 'cloud' && (
+          <Row gap="1" paddingY="1" alignItems="center" wrap="wrap">
+            <Text size="xs" color="muted" transform="uppercase">Model:</Text>
+            <input type="text" value={embModel} onChange={e => setEmbModel(e.target.value)}
+              placeholder="all-MiniLM-L6-v2"
+              style={{ flex: 1, minWidth: 200, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
+          </Row>
+          <Row gap="2" paddingY="1" alignItems="center" wrap="wrap">
+            <Text size="xs" color="muted" transform="uppercase">Dimensions:</Text>
+            <input type="number" min="32" max="8192" step="32" value={embDim}
+              onChange={e => setEmbDim(parseInt(e.target.value) || 1024)}
+              style={{ width: 100, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
+            <Text size="xs" color="muted">(configurable per model)</Text>
+          </Row>
+          {(embProvider === 'openai' || embProvider === 'gemini' || embProvider === 'cloud') && (
             <Row gap="2" paddingY="1" alignItems="center" wrap="wrap">
               <Text size="xs" color="muted" transform="uppercase" style={{ width: '100%' }}>API URL:</Text>
-              <input type="text" value={embApiUrl} onChange={e => setEmbApiUrl(e.target.value)} placeholder="https://api.together.xyz/v1"
+              <input type="text" value={embApiUrl} onChange={e => setEmbApiUrl(e.target.value)}
+                placeholder={embProvider === 'openai' ? 'https://api.openai.com/v1' : embProvider === 'gemini' ? 'https://generativelanguage.googleapis.com/v1beta' : 'https://api.together.xyz/v1'}
                 style={{ flex: '1 1 100%', minWidth: 200, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
               <Text size="xs" color="muted" transform="uppercase" style={{ width: '100%', marginTop: 4 }}>Key:</Text>
               <input type={showKey ? 'text' : 'password'} value={embApiKey} onChange={e => setEmbApiKey(e.target.value)} placeholder="sk-..."
@@ -610,20 +626,12 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
               </Button>
             </Row>
           )}
-          {embModel === 'qwen3' && (
-            <Row gap="2" paddingY="1" alignItems="center" wrap="wrap">
-              <Text size="xs" color="muted" transform="uppercase">Qwen3 Dim:</Text>
-              <input type="number" min="32" max="8192" step="32" value={embDim}
-                onChange={e => setEmbDim(parseInt(e.target.value) || 1024)}
-                style={{ width: 100, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
-              <Text size="xs" color="muted">Dimensions (check model card for min/max)</Text>
-            </Row>
-          )}
           <Row gap="1" paddingX="2" paddingBottom="1">
             <Text size="xs" color="muted">
-              {embModel === 'minilm' ? 'all-MiniLM-L6-v2 (384d). Lightweight, local GPU/CPU always.' :
-               embMode === 'local' ? 'Qwen3-Embedding (configurable: 0.6B/4B/8B, up to 4096d, 32K ctx). Gated model (set HF_TOKEN). Set EMBEDDING_MODEL_QWEN3 env var.' :
-               'Qwen3-Embedding via API. Configure URL + key above (stored per-user).'}
+              {embProvider === 'local' ? `Local model "${embModel}". Requires ~500MB+ free GPU/CPU RAM per model. Uses SentenceTransformer.` :
+               embProvider === 'openai' ? `OpenAI model "${embModel}". Requires OpenAI API key with embedding access.` :
+               embProvider === 'gemini' ? `Gemini model "${embModel}". Requires Google AI API key.` :
+               `Cloud API model "${embModel}". Uses provider at ${embApiUrl || 'not configured'}. Any OpenAI-compatible API.`}
             </Text>
           </Row>
           <Grid columns={{ base: '1fr', md: '1fr 1fr' }} gap="3">

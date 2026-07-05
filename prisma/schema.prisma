@@ -89,6 +89,7 @@ model Website {
   sessionReplays      SessionReplay[]
   sessionReplaysSaved SessionReplaySaved[]
   heatmapEvents       HeatmapEvent[]
+  mlApiKeys           MlApiKey[]
 
   @@index([userId])
   @@index([teamId])
@@ -426,4 +427,20 @@ model HeatmapEvent {
   @@index([websiteId, createdAt])
   @@index([websiteId, urlPath, eventType, createdAt])
   @@map("heatmap_event")
+}
+
+model MlApiKey {
+  id          String   @id() @map("api_key_id") @db.Uuid
+  websiteId   String   @map("website_id") @db.Uuid
+  name        String   @map("name") @db.VarChar(200)
+  keyPrefix   String   @unique @map("key_prefix") @db.VarChar(8)
+  keyHash     String   @map("key_hash") @db.VarChar(64)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt  DateTime? @map("last_used_at") @db.Timestamptz(6)
+
+  website Website @relation(fields: [websiteId], references: [id])
+
+  @@index([websiteId])
+  @@map("ml_api_keys")
 }

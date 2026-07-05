@@ -1,18 +1,20 @@
 """
 Semantic Embedder for Umami ML Service
-Generates text embeddings using configurable models for semantic page recommendations.
+Generates text embeddings using any SentenceTransformer model locally or any OpenAI-compatible API.
 
 Supports:
-- Models: 'minilm' (384d, all-MiniLM-L6-v2, local only) or 'qwen3' (2048d, local or cloud)
-- Modes: 'local' (SentenceTransformer on GPU/CPU) or 'cloud' (OpenAI-compatible API)
-- Each mode stores results in its own pgvector column: semantic_embedding (384d) or qwen3_embedding (2048d)
-- Graceful fallback: if model not available, falls back to token mode
+- Local mode: any SentenceTransformer model from HuggingFace
+- OpenAI mode: any OpenAI embedding model (text-embedding-3-small, text-embedding-3-large, etc.)
+- Gemini mode: any Google Generative AI embedding model
+- Cloud mode: any OpenAI-compatible API (user-provided URL + key)
 
 Configuration (env vars):
-  EMBEDDING_MODEL: 'minilm' (default) or 'qwen3'
-  EMBEDDING_MODE: 'local' (default) or 'cloud'
-  EMBEDDING_API_URL: e.g. https://api.together.xyz/v1 or https://dashscope.aliyuncs.com/compatible-mode/v1
+  EMBEDDING_MODEL: any HF model name (default: all-MiniLM-L6-v2)
+  EMBEDDING_MODE: 'local', 'openai', 'gemini', or 'cloud'
+  EMBEDDING_API_URL: e.g. https://api.openai.com/v1 or user URL
   EMBEDDING_API_KEY: API key for cloud provider
+  EMBEDDING_DIM: output dimension (default varies by model)
+  EMBEDDING_MODEL_QWEN3: backward compat, if 'qwen3' still used
 """
 import os
 import json
@@ -51,76 +53,71 @@ except ImportError:
 from ..config import CONFIG
 from .. import gpu_utils
 
-# Cached local model instances
-_minilm_encoder = None
-_qwen3_encoder = None
+# Cache for local encoder instances
+_encoder_cache: dict[str, SentenceTransformer] = {}
 
-# Embedding dimensions per model (configurable via env vars)
-# Qwen3-Embedding-0.6B: 32-1024 (default 1024)
-# Qwen3-Embedding-4B:   32-2560
-# Qwen3-Embedding-8B:   32-4096
-EMBEDDING_DIMS = {
-    'minilm': int(os.getenv('EMBEDDING_DIM_MINILM', '384')),
-    'qwen3': int(os.getenv('EMBEDDING_DIM_QWEN3', '1024')),
+# Default dimension if not configured
+DEFAULT_DIM = int(os.getenv('EMBEDDING_DIM', '384'))
+
+# Provider-specific default models
+PROVIDER_DEFAULT_MODELS = {
+    'local': 'all-MiniLM-L6-v2',
+    'openai': 'text-embedding-3-small',
+    'gemini': 'models/embedding-001',
+    'cloud': '',  # Must be provided by user
 }
 
-# Column names per model
-EMBEDDING_COLUMNS = {
-    'minilm': 'semantic_embedding',
-    'qwen3': 'qwen3_embedding',
-}
 
 def get_config() -> tuple[str, str, str, str]:
     """Get embedding configuration from environment."""
-    model = os.getenv('EMBEDDING_MODEL', 'minilm').lower()
+    model_raw = os.getenv('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
+
+    # Backward compat: if model is 'minilm' or 'qwen3', resolve
+    model = model_raw.lower()
+    if model == 'minilm':
+        model = 'all-MiniLM-L6-v2'
+    elif model == 'qwen3':
+        model = os.getenv('EMBEDDING_MODEL_QWEN3', 'Qwen/Qwen3-Embedding-0.6B')
+
     mode = os.getenv('EMBEDDING_MODE', 'local').lower()
     api_url = os.getenv('EMBEDDING_API_URL', '')
     api_key = os.getenv('EMBEDDING_API_KEY', '')
+
+    # Backward compat: if no explicit mode but has API URL/Key, infer 'cloud'
+    if mode == 'local' and api_url and api_key:
+        mode = 'cloud'
+
     return model, mode, api_url, api_key
 
 
-def get_local_encoder(model: str, device: Optional[str] = None):
-    """Get or create cached SentenceTransformer instance for the given model."""
-    global _minilm_encoder, _qwen3_encoder
-
-    if model == 'qwen3':
-        if _qwen3_encoder is None:
-            if not ST_AVAILABLE:
-                raise ImportError("sentence-transformers not installed: pip install sentence-transformers")
-            dev = device or str(gpu_utils.DEVICE)
-            logger.info(f"Loading Qwen3-embedding on {dev} (this may take a moment for first download)")
-            try:
-                model_name = os.getenv("EMBEDDING_MODEL_QWEN3", "Qwen/Qwen3-Embedding-0.6B")
-                logger.info(f"Loading {model_name} on {dev} (this may take a moment)")
-                _qwen3_encoder = SentenceTransformer(model_name, device=dev)
-            except Exception as e:
-                logger.warning(f"Failed to load Qwen3-embedding locally: {e}. Falling back to MiniLM.")
-                logger.info("Loading all-MiniLM-L6-v2 as fallback")
-                _qwen3_encoder = SentenceTransformer("all-MiniLM-L6-v2", device=dev)
-        return _qwen3_encoder
-    else:
-        # Default: all-MiniLM-L6-v2
-        if _minilm_encoder is None:
-            if not ST_AVAILABLE:
-                raise ImportError("sentence-transformers not installed: pip install sentence-transformers")
-            dev = device or str(gpu_utils.DEVICE)
-            logger.info(f"Loading all-MiniLM-L6-v2 on {dev}")
-            _minilm_encoder = SentenceTransformer("all-MiniLM-L6-v2", device=dev)
-        return _minilm_encoder
+def _normalize(arr: np.ndarray) -> np.ndarray:
+    """L2-normalize embedding array."""
+    norms = np.linalg.norm(arr, axis=1, keepdims=True)
+    return arr / (norms + 1e-8)
 
 
-def embed_text_local(texts: list[str], model: str = 'minilm', device: Optional[str] = None) -> np.ndarray:
-    """Embed text using local SentenceTransformer model.
+# ---------------------------------------------------------------------------
+# Provider dispatchers
+# ---------------------------------------------------------------------------
 
-    Args:
-        texts: List of text strings
-        model: 'minilm' (384d) or 'qwen3' (2048d)
-        device: Torch device string
+def _embed_local(texts: list[str], model: str, device: Optional[str] = None) -> np.ndarray:
+    """Embed via SentenceTransformer (any HF model supported)."""
+    global _encoder_cache
 
-    Returns:
-        numpy array of shape (len(texts), dim) with normalized embeddings
-    """
-    encoder = get_local_encoder(model, device)
+    if not ST_AVAILABLE:
+        raise ImportError("sentence-transformers not installed: pip install sentence-transformers")
+
+    if model not in _encoder_cache:
+        dev = device or str(gpu_utils.DEVICE)
+        logger.info(f"Loading model '{model}' on {dev} (this may take a moment)")
+        try:
+            _encoder_cache[model] = SentenceTransformer(model, device=dev)
+        except Exception as e:
+            logger.warning(f"Failed to load '{model}': {e}, falling back to all-MiniLM-L6-v2")
+            _encoder_cache[model] = SentenceTransformer("all-MiniLM-L6-v2", device=dev)
+            model = "all-MiniLM-L6-v2"
+
+    encoder = _encoder_cache[model]
     embeddings = encoder.encode(
         texts,
         convert_to_numpy=True,
@@ -130,88 +127,154 @@ def embed_text_local(texts: list[str], model: str = 'minilm', device: Optional[s
     return embeddings
 
 
-def embed_text_cloud(texts: list[str], model: str = 'qwen3') -> np.ndarray:
-    """Embed text using OpenAI-compatible cloud API (e.g. Together AI, Alibaba Cloud).
+def _embed_openai(texts: list[str], model: str, api_key: str, api_url: Optional[str] = None) -> np.ndarray:
+    """Embed via OpenAI-compatible API."""
+    url = (api_url or 'https://api.openai.com/v1').rstrip('/') + '/embeddings'
+    api_key = api_key or os.getenv('OPENAI_API_KEY', '')
 
-    Args:
-        texts: List of text strings
-        model: API model name (default 'Qwen/Qwen3-embedding')
-
-    Returns:
-        numpy array of shape (len(texts), dim) with normalized embeddings
-    """
-    _, _, api_url, api_key = get_config()
-
-    if not api_url or not api_key:
-        logger.warning("Cloud embedding not configured (set EMBEDDING_API_URL and EMBEDDING_API_KEY)")
-        # Fallback to local
-        return embed_text_local(texts, 'minilm')
+    if not api_key:
+        raise ValueError("OpenAI API key required (set EMBEDDING_API_KEY or OPENAI_API_KEY)")
 
     if not REQUESTS_AVAILABLE:
-        logger.warning("requests library not available, falling back to local")
-        return embed_text_local(texts, model if model == 'qwen3' else 'minilm')
+        raise ImportError("requests library required for API embedding")
 
-    api_model = "Qwen/Qwen3-embedding" if model == 'qwen3' else "all-MiniLM-L6-v2"
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json',
+    }
+
+    payload = {
+        'model': model,
+        'input': texts,
+        'encoding_format': 'float',
+    }
+
+    # Add dimension if configured (supported by OpenAI and compatible APIs)
+    dim = os.getenv('EMBEDDING_DIM', '')
+    if dim:
+        payload['dimensions'] = int(dim)
+
+    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    response.raise_for_status()
+    data = response.json()
+
+    embeddings = [d['embedding'] for d in sorted(data['data'], key=lambda x: x['index'])]
+    arr = np.array(embeddings, dtype=np.float32)
+    return _normalize(arr)
+
+
+def _embed_gemini(texts: list[str], model: str, api_key: str) -> np.ndarray:
+    """Embed via Google Gemini/Generative AI API."""
+    api_key = api_key or os.getenv('GEMINI_API_KEY', '')
+
+    if not api_key:
+        raise ValueError("Gemini API key required (set EMBEDDING_API_KEY or GEMINI_API_KEY)")
+
+    if not REQUESTS_AVAILABLE:
+        raise ImportError("requests library required for API embedding")
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent?key={api_key}"
+
+    results = []
+    # Gemini API processes one text at a time
+    for text in texts:
+        payload = {
+            'model': f'models/{model}' if not model.startswith('models/') else model,
+            'content': {'parts': [{'text': text}]},
+        }
+        resp = requests.post(url, json=payload, headers={'Content-Type': 'application/json'}, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        results.append(data['embedding']['values'])
+
+    arr = np.array(results, dtype=np.float32)
+    return _normalize(arr)
+
+
+def _embed_cloud(texts: list[str], model: str, api_url: str, api_key: str) -> np.ndarray:
+    """Embed via any OpenAI-compatible API (generic cloud)."""
+    if not api_url or not api_key:
+        raise ValueError("Cloud embedding requires EMBEDDING_API_URL and EMBEDDING_API_KEY")
+
+    if not REQUESTS_AVAILABLE:
+        raise ImportError("requests library required for API embedding")
+
     url = api_url.rstrip('/') + '/embeddings'
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json',
+    }
 
-    try:
-        response = requests.post(
-            url,
-            headers={
-                'Authorization': f'Bearer {api_key}',
-                'Content-Type': 'application/json',
-            },
-            json={
-                'model': api_model,
-                'input': texts,
-                'encoding_format': 'float',
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-        # Extract embeddings, ordered by index
-        embeddings = [d['embedding'] for d in sorted(data['data'], key=lambda x: x['index'])]
-        arr = np.array(embeddings, dtype=np.float32)
-        # Normalize
-        norms = np.linalg.norm(arr, axis=1, keepdims=True)
-        arr = arr / (norms + 1e-8)
-        return arr
-    except Exception as e:
-        logger.warning(f"Cloud embedding failed: {e}, falling back to local")
-        return embed_text_local(texts, 'minilm')
+    payload = {
+        'model': model,
+        'input': texts,
+        'encoding_format': 'float',
+    }
+
+    dim = os.getenv('EMBEDDING_DIM', '')
+    if dim:
+        payload['dimensions'] = int(dim)
+
+    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    response.raise_for_status()
+    data = response.json()
+
+    embeddings = [d['embedding'] for d in sorted(data['data'], key=lambda x: x['index'])]
+    arr = np.array(embeddings, dtype=np.float32)
+    return _normalize(arr)
 
 
-def embed_text(texts: list[str], model: Optional[str] = None, mode: Optional[str] = None, device: Optional[str] = None) -> np.ndarray:
-    """Embed text using the configured model and mode.
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def embed_text(texts: list[str], model: Optional[str] = None, mode: Optional[str] = None,
+               device: Optional[str] = None, api_url: Optional[str] = None,
+               api_key: Optional[str] = None) -> np.ndarray:
+    """Embed text using configured model, mode, and optional overrides.
+
+    Provider resolution:
+      mode='local'   → SentenceTransformer with model name (any HF model)
+      mode='openai'  → OpenAI API with model name
+      mode='gemini'  → Google Generative AI API
+      mode='cloud'   → User-provided API URL (OpenAI-compatible)
 
     Args:
         texts: List of text strings
-        model: Override config model ('minilm' or 'qwen3')
-        mode: Override config mode ('local' or 'cloud')
-        device: Torch device string
+        model: Model name (default from env EMBEDDING_MODEL)
+        mode: Provider mode ('local', 'openai', 'gemini', 'cloud')
+        device: Torch device string (local mode only)
+        api_url: Override API URL (cloud modes only)
+        api_key: Override API key (cloud modes only)
 
     Returns:
         numpy array of shape (len(texts), dim) with normalized embeddings
     """
-    cfg_model, cfg_mode, _, _ = get_config()
+    cfg_model, cfg_mode, cfg_url, cfg_key = get_config()
     model = model or cfg_model
-    mode = mode or cfg_mode
+    mode = (mode or cfg_mode).lower()
+    api_url = api_url or cfg_url
+    api_key = api_key or cfg_key
 
-    if mode == 'cloud' and (model == 'qwen3' or _has_cloud_config()):
+    try:
+        if mode == 'local':
+            return _embed_local(texts, model, device)
+        elif mode == 'openai':
+            return _embed_openai(texts, model, api_key, api_url)
+        elif mode == 'gemini':
+            return _embed_gemini(texts, model, api_key)
+        elif mode == 'cloud':
+            return _embed_cloud(texts, model, api_url, api_key)
+        else:
+            logger.warning(f"Unknown mode '{mode}', falling back to local")
+            return _embed_local(texts, model, device)
+    except Exception as e:
+        logger.warning(f"{mode}/{model} embedding failed: {e}, falling back to local")
         try:
-            return embed_text_cloud(texts, model)
-        except Exception as e:
-            logger.warning(f"Cloud embedding failed: {e}, falling back to local")
-            return embed_text_local(texts, model, device)
-    else:
-        return embed_text_local(texts, model, device)
-
-
-def _has_cloud_config() -> bool:
-    """Check if cloud embedding is configured."""
-    _, _, api_url, api_key = get_config()
-    return bool(api_url and api_key)
+            return _embed_local(texts, 'all-MiniLM-L6-v2', device)
+        except Exception as e2:
+            logger.error(f"Fallback embedding failed: {e2}")
+            raise
 
 
 def embed_page_url(url: str) -> str:
@@ -226,16 +289,24 @@ def embed_page_url(url: str) -> str:
     return text.strip() or "/"
 
 
-def get_embedding_dim(model: Optional[str] = None) -> int:
-    """Get the embedding dimension for the given model."""
-    cfg_model, _, _, _ = get_config()
-    return EMBEDDING_DIMS.get(model or cfg_model, 384)
+def get_embedding_dim(model_override: Optional[str] = None) -> int:
+    """Get configured embedding dimension."""
+    dim = os.getenv('EMBEDDING_DIM', str(DEFAULT_DIM))
+    return int(dim)
 
 
-def get_embedding_column(model: Optional[str] = None) -> str:
-    """Get the pgvector column name for the given model."""
-    cfg_model, _, _, _ = get_config()
-    return EMBEDDING_COLUMNS.get(model or cfg_model, 'semantic_embedding')
+def get_modelled_column(model: str) -> str:
+    """Return a deterministic column name for any model."""
+    # Sanitize model name to a valid Postgres column identifier
+    safe = model.replace('/', '_').replace('-', '_').replace('.', '_').lower()
+    # Keep known short alias for common models
+    alias_map = {
+        'all_minilm_l6_v2': 'semantic_embedding',
+        'all-minilm-l6-v2': 'semantic_embedding',
+        'text_embedding_3_small': 'embedding',
+        'text_embedding_3_large': 'embedding',
+    }
+    return alias_map.get(safe, f"emb_{safe[:48]}")
 
 
 def sync_semantic_embeddings(
@@ -244,18 +315,22 @@ def sync_semantic_embeddings(
     db_url: Optional[str] = None,
     model: Optional[str] = None,
     mode: Optional[str] = None,
+    api_url: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> int:
     """Generate and store semantic embeddings for a list of pages.
 
-    Supports both 'minilm' and 'qwen3' models, both 'local' and 'cloud' modes.
-    Stores in the corresponding pgvector column and rebuilds the DiskANN index.
+    Supports any embedding model via any provider. Stores all embeddings
+    in the unified `embedding` column (vector(4096)) with model_name tracking.
 
     Args:
         website_id: Umami website UUID
         page_urls: List of page URL paths to embed
         db_url: Database connection string
-        model: 'minilm' or 'qwen3' (default from config)
-        mode: 'local' or 'cloud' (default from config)
+        model: Model name (any HuggingFace model, OpenAI model, etc.)
+        mode: 'local', 'openai', 'gemini', or 'cloud'
+        api_url: API URL override (for cloud/openai/gemini modes)
+        api_key: API key override
 
     Returns:
         Number of embeddings synced
@@ -268,8 +343,7 @@ def sync_semantic_embeddings(
     mode = mode or cfg_mode
 
     texts = [embed_page_url(p) for p in page_urls]
-    embeddings = embed_text(texts, model=model, mode=mode)
-    column = get_embedding_column(model)
+    embeddings = embed_text(texts, model=model, mode=mode, api_url=api_url, api_key=api_key)
 
     if not HAS_PSYCOPG2:
         logger.warning("psycopg2 not available, cannot store embeddings")
@@ -282,17 +356,17 @@ def sync_semantic_embeddings(
         count = 0
         for page_url, emb in zip(page_urls, embeddings):
             emb_str = "[" + ",".join(f"{v:.6f}" for v in emb) + "]"
-            cur.execute(f"""
-                INSERT INTO page_embeddings (website_id, page_url, {column}, updated_at)
-                VALUES (%s, %s, %s::vector, NOW())
+            cur.execute("""
+                INSERT INTO page_embeddings (website_id, page_url, embedding, model_name, updated_at)
+                VALUES (%s, %s, %s::vector, %s, NOW())
                 ON CONFLICT (website_id, page_url)
-                DO UPDATE SET {column} = %s::vector, updated_at = NOW()
-            """, (website_id, page_url, emb_str, emb_str))
+                DO UPDATE SET embedding = %s::vector, model_name = %s, updated_at = NOW()
+            """, (website_id, page_url, emb_str, model, emb_str, model))
             count += 1
         conn.commit()
         cur.close()
         conn.close()
-        logger.info(f"Synced {count} {model} embeddings ({mode}) to pgvector column '{column}'")
+        logger.info(f"Synced {count} embeddings for model '{model}' ({mode})")
         return count
     except Exception as e:
         logger.warning(f"Semantic embedding sync failed: {e}")
@@ -307,34 +381,37 @@ def retrieve_semantic_candidates(
     db_url: Optional[str] = None,
     model: Optional[str] = None,
     mode: Optional[str] = None,
+    api_url: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> list[tuple[str, float]]:
     """Retrieve candidate pages via semantic similarity search.
 
-    Uses the configured model's pgvector column and DiskANN index.
+    Uses the unified `embedding` column with DiskANN index.
+    Filters by model_name to match only embeddings from the current model.
 
     Args:
         query_text: Text to search by
         website_id: Umami website UUID
-        top_k: Number of candidates to return
+        top_k: Number of candidates
         exclude: Set of page URLs to exclude
         db_url: Database connection string
-        model: 'minilm' or 'qwen3' (default from config)
-        mode: 'local' or 'cloud' (default from config)
+        model: Model name (default from config)
+        mode: Provider mode
+        api_url: API URL override
+        api_key: API key override
 
     Returns:
         List of (page_url, similarity_score) tuples
     """
-    exclude = exclude or set()
-    column = get_embedding_column(model)
-
     cfg_model, cfg_mode, _, _ = get_config()
     model_resolved = model or cfg_model
     mode_resolved = mode or cfg_mode
 
-    query_emb = embed_text([query_text], model=model_resolved, mode=mode_resolved)[0]
-    emb_str = "[" + ",".join(f"{v:.6f}" for v in query_emb) + "]"
+    embed = embed_text([query_text], model=model_resolved, mode=mode_resolved,
+                       api_url=api_url, api_key=api_key)[0]
+    emb_str = "[" + ",".join(f"{v:.6f}" for v in embed) + "]"
 
-    if not HAS_PSYCOPG2 or not db_url:
+    if not HAS_PSYCOPG2:
         return []
 
     db_url = db_url or CONFIG.db.url
@@ -343,24 +420,27 @@ def retrieve_semantic_candidates(
         cur = conn.cursor()
 
         exclude_clause = ""
+        params = [emb_str, website_id, model_resolved, emb_str, top_k]
         if exclude:
-            esc = ", ".join(f"'{e.replace(chr(39), chr(39)+chr(39))}'" for e in exclude)
-            exclude_clause = f"AND page_url NOT IN ({esc})"
+            placeholders = ", ".join(f"%s" for _ in exclude)
+            exclude_clause = f"AND page_url NOT IN ({placeholders})"
+            params = [emb_str, website_id, model_resolved, emb_str] + list(exclude) + [top_k]
 
         query = f"""
-            SELECT page_url, 1 - ({column} <=> %s::vector) AS similarity
+            SELECT page_url, 1 - (embedding <=> %s::vector) AS similarity
             FROM page_embeddings
             WHERE website_id = %s
-              AND {column} IS NOT NULL
+              AND model_name = %s
+              AND embedding IS NOT NULL
               {exclude_clause}
-            ORDER BY {column} <=> %s::vector
+            ORDER BY embedding <=> %s::vector
             LIMIT %s
         """
-        cur.execute(query, (emb_str, website_id, emb_str, top_k))
+        cur.execute(query, params)
         results = [(row[0], float(row[1])) for row in cur.fetchall()]
         cur.close()
         conn.close()
         return results
     except Exception as e:
-        logger.warning(f"Semantic search ({model_resolved}, {column}) failed: {e}")
+        logger.warning(f"Semantic search ({model_resolved}) failed: {e}")
         return []

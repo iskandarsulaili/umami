@@ -21,18 +21,13 @@ export async function POST(request: Request) {
       top_k: topK || 20,
       mode: mode || 'token',
       semantic_weight: semanticWeight ?? 0.6,
-      embedding_model: embeddingModel || 'minilm',
+      embedding_model: embeddingModel || 'all-MiniLM-L6-v2',
       embedding_mode: embeddingMode || 'local',
+      embedding_dim: embeddingDim || 1024,
+      embedding_api_url: embeddingApiUrl || null,
+      embedding_api_key: embeddingApiKey || null,
     };
-    // Only send dim if qwen3 model
-    if (embeddingModel === 'qwen3' && body.embeddingDim) {
-      mlBody.embedding_dim = body.embeddingDim;
-    }
-    // Only send URL/key if cloud mode is active
-    if (embeddingMode === 'cloud') {
-      if (embeddingApiUrl) mlBody.embedding_api_url = embeddingApiUrl;
-      if (embeddingApiKey) mlBody.embedding_api_key = embeddingApiKey;
-    }
+
     const data = await fetchFromML('/recommend', mlBody);
     return json(data);
   } catch (e: any) {

@@ -447,6 +447,13 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
               Hybrid
             </Button>
           </Row>
+          <Row gap="1" paddingX="2" paddingBottom="1">
+            <Text size="xs" color="muted">
+              {recMode === 'token' ? 'URL pattern matching via GRU neural network. Fast, works with minimal data.' :
+               recMode === 'semantic' ? 'Page meaning via SentenceTransformer. Requires semantic embeddings sync.' :
+               'Fused Token + Semantic with adjustable weight (default 60% semantic, 40% token).'}
+            </Text>
+          </Row>
           <Grid columns={{ base: '1fr', md: '1fr 1fr' }} gap="3">
             <Column gap="1" padding="2">
               <Text weight="bold" size="sm">{t(labels.gpu)}</Text>

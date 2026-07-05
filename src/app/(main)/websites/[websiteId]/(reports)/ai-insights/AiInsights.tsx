@@ -435,6 +435,18 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
               <Text size="sm" color={trainResult.includes('failed') ? 'danger' : 'success'}>{trainResult}</Text>
             )}
           </Row>
+          <Row gap="1" paddingY="1" alignItems="center">
+            <Text size="xs" color="muted" transform="uppercase">Rec Mode:</Text>
+            <Button variant={recMode === 'token' ? 'primary' : 'quiet'} onPress={() => { setRecMode('token'); loadInsights(); }}>
+              Token
+            </Button>
+            <Button variant={recMode === 'semantic' ? 'primary' : 'quiet'} onPress={() => { setRecMode('semantic'); loadInsights(); }}>
+              Semantic
+            </Button>
+            <Button variant={recMode === 'hybrid' ? 'primary' : 'quiet'} onPress={() => { setRecMode('hybrid'); loadInsights(); }}>
+              Hybrid
+            </Button>
+          </Row>
           <Grid columns={{ base: '1fr', md: '1fr 1fr' }} gap="3">
             <Column gap="1" padding="2">
               <Text weight="bold" size="sm">{t(labels.gpu)}</Text>

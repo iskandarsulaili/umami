@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   const { auth, body, error } = await parseRequest(request);
   if (error) return error();
 
-  const { websiteId, sessionPages, sessionFeatures, topK, mode, semanticWeight, embeddingModel, embeddingMode, embeddingApiUrl, embeddingApiKey } = body;
+  const { websiteId, sessionPages, sessionFeatures, topK, mode, semanticWeight, embeddingModel, embeddingMode, embeddingDim, embeddingApiUrl, embeddingApiKey } = body;
 
   if (!(await canViewWebsiteSection(auth, websiteId, 'journeys'))) {
     return unauthorized();

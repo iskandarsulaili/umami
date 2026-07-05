@@ -567,13 +567,15 @@ class Recommender(BaseModel):
         # Temporarily set env vars for cloud config if provided
         old_url = os.environ.get("EMBEDDING_API_URL")
         old_key = os.environ.get("EMBEDDING_API_KEY")
-        old_dim = os.environ.get("EMBEDDING_DIM_QWEN3")
+        old_dim_qwen3 = os.environ.get("EMBEDDING_DIM_QWEN3")
+        old_dim = os.environ.get("EMBEDDING_DIM")
         if embedding_api_url:
             os.environ["EMBEDDING_API_URL"] = embedding_api_url
         if embedding_api_key:
             os.environ["EMBEDDING_API_KEY"] = embedding_api_key
         if embedding_dim:
             os.environ["EMBEDDING_DIM_QWEN3"] = str(embedding_dim)
+            os.environ["EMBEDDING_DIM"] = str(embedding_dim)
         
         try:
             candidates = semantic_embedder.retrieve_semantic_candidates(
@@ -590,6 +592,14 @@ class Recommender(BaseModel):
                 os.environ["EMBEDDING_API_KEY"] = old_key
             elif embedding_api_key:
                 os.environ.pop("EMBEDDING_API_KEY", None)
+            if old_dim_qwen3 is not None:
+                os.environ["EMBEDDING_DIM_QWEN3"] = old_dim_qwen3
+            elif embedding_dim:
+                os.environ.pop("EMBEDDING_DIM_QWEN3", None)
+            if old_dim is not None:
+                os.environ["EMBEDDING_DIM"] = old_dim
+            elif embedding_dim:
+                os.environ.pop("EMBEDDING_DIM", None)
 
         if not candidates:
             return self._cold_start_recommend(top_k)

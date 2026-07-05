@@ -90,7 +90,9 @@ def get_local_encoder(model: str, device: Optional[str] = None):
             dev = device or str(gpu_utils.DEVICE)
             logger.info(f"Loading Qwen3-embedding on {dev} (this may take a moment for first download)")
             try:
-                _qwen3_encoder = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device=dev, model_kwargs={"attn_implementation": "flash_attention_2"}, tokenizer_kwargs={"padding_side": "left"})
+                model_name = os.getenv("EMBEDDING_MODEL_QWEN3", "Qwen/Qwen3-Embedding-0.6B")
+                logger.info(f"Loading {model_name} on {dev} (this may take a moment)")
+                _qwen3_encoder = SentenceTransformer(model_name, device=dev)
             except Exception as e:
                 logger.warning(f"Failed to load Qwen3-embedding locally: {e}. Falling back to MiniLM.")
                 logger.info("Loading all-MiniLM-L6-v2 as fallback")

@@ -483,8 +483,32 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
           <Row gap="1" paddingX="2" paddingBottom="1">
             <Text size="xs" color="muted">
               {recMode === 'token' ? 'URL pattern matching via GRU neural network. Fast, works with minimal data.' :
-               recMode === 'semantic' ? 'Page meaning via SentenceTransformer. Requires semantic embeddings sync.' :
+               recMode === 'semantic' ? 'Page meaning via embedding model. Toggle model/mode below.' :
                'Fused Token + Semantic with adjustable weight (default 60% semantic, 40% token).'}
+            </Text>
+          </Row>
+          <Row gap="1" paddingY="1" alignItems="center" wrap="wrap">
+            <Text size="xs" color="muted" transform="uppercase">Model:</Text>
+            <Button variant={embModel === 'minilm' ? 'primary' : 'quiet'} onPress={() => setEmbModel('minilm')}>
+              MiniLM (384d)
+            </Button>
+            <Button variant={embModel === 'qwen3' ? 'primary' : 'quiet'} onPress={() => setEmbModel('qwen3')}>
+              Qwen3 ({embModel === 'qwen3' ? '4096d' : '4096d'})
+            </Button>
+            <Text size="xs" color="muted" paddingX="1">|</Text>
+            <Text size="xs" color="muted" transform="uppercase">Mode:</Text>
+            <Button variant={embMode === 'local' ? 'primary' : 'quiet'} onPress={() => setEmbMode('local')}>
+              Local
+            </Button>
+            <Button variant={embMode === 'cloud' ? 'primary' : 'quiet'} onPress={() => setEmbMode('cloud')}>
+              Cloud
+            </Button>
+          </Row>
+          <Row gap="1" paddingX="2" paddingBottom="1">
+            <Text size="xs" color="muted">
+              {embModel === 'minilm' ? 'all-MiniLM-L6-v2 (384d). Lightweight, local GPU/CPU always.' :
+               embMode === 'local' ? 'Qwen3-embedding (4096d). ~2GB model, runs locally on GPU.' :
+               'Qwen3-embedding via API. Set EMBEDDING_API_URL + EMBEDDING_API_KEY in env.'}
             </Text>
           </Row>
           <Grid columns={{ base: '1fr', md: '1fr 1fr' }} gap="3">

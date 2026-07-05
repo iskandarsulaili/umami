@@ -7,7 +7,7 @@
 <p align="center">
   <i>Umami is a simple, fast, privacy-focused alternative to Google Analytics.</i>
   <br/>
-  <b>This fork adds GPU-accelerated ML, graph-based visitor journey analysis, and time-series optimization.</b>
+  <b>This fork adds GPU-accelerated ML, graph-based visitor journey analysis, time-series optimization, and a public ML API with API key authentication.</b>
 </p>
 
 <p align="center">
@@ -25,12 +25,17 @@
 | **PostgreSQL 18** | Upgraded from PG15 to PG18 with uuidv7(), AIO subsystem, skip scan |
 | **TimescaleDB 2.27** | 7 hypertables with auto-partitioning, continuous aggregates, data retention |
 | **Apache AGE 1.7** | Graph database for visitor journey analysis via openCypher |
-| **pgvector + pgvectorscale** | StreamingDiskANN index with SBQ compression for fast ANN search |
-| **9 ML Models (GPU)** | Next-page predictor, funnel drop-off, session intent, recommender, rage-click, journey clustering, contextual bandit, A/B testing, session replay analysis |
-| **AI Insights Dashboard** | ML-powered recommendations and predictions in the umami UI |
-| **ML Integrated into Reports** | Journey and funnel reports enriched with ML predictions |
-| **umami.recommend() JS API** | Client-side embed script for real-time recommendations |
-| **A/B Testing Framework** | Statistical experiment framework with chi-squared significance |
+| **pgvector + pgvectorscale** | 3 StreamingDiskANN indexes (256d GRU, 384d MiniLM, 4096d Qwen3) |
+| **9 ML Models (GPU)** | Next-page, funnel drop-off, session intent, recommender, rage-click, journey clustering, contextual bandit, A/B testing, session replay analysis |
+| **AI Insights Dashboard** | ML-powered recommendations and predictions with Train/Refresh/Sync buttons |
+| **3 Recommendation Modes** | Token (GRU), Semantic (MiniLM/Qwen3), Hybrid — toggleable from dashboard |
+| **2 Embedding Models** | MiniLM (384d, local) and Qwen3 (4096d, local or cloud API) |
+| **BYOK Cloud Embedding** | Users bring their own API URL + key for cloud-based Qwen3 embedding |
+| **Public ML API v1** | API-key authenticated endpoints for third-party access |
+| **Self-Service API Keys** | Generate, list, and revoke API keys from Settings > ML API Keys |
+| **User Preferences** | Per-user settings for rec mode, embedding model/mode, API URL/key, hybrid weight — all persisted server-side |
+| **AGE Graph Recommendations** | Path-based recommendations via Apache AGE openCypher |
+| **Auto-Indexing** | Semantic embeddings synced automatically every 15 min via cron |
 | **Contextual Bandit** | Online learning for real-time content recommendations |
 | **GPU Acceleration** | RTX 3060 (PyTorch 2.12) + Tesla P40 (ONNX/XGBoost) with CPU fallback |
 
@@ -43,14 +48,15 @@ umami App (Next.js port 3000)          ML Service (FastAPI port 8001)
 ┌─────────────────────────────┐       ┌──────────────────────────────────────┐
 │  /api/ml/* route handlers   │──────►│  /predict/next-page  (Markov+Trans)  │
 │  (auth + proxy to 8001)     │       │  /predict/funnel-drop (XGBoost GPU)  │
-│  AI Insights dashboard      │       │  /predict/intent     (BERT+RF)       │
-│  Journey/Funnel reports     │       │  /recommend          (GRU+ANN)       │
-│  umami.recommend() embed    │       │  /predict/rage-click (Isolation)     │
-└─────────────────────────────┘       │  /predict/cluster   (UMAP+HDBSCAN)  │
-                                      │  /recommend/bandit  (LinUCB)        │
-                                      │  /ab-test/*         (Chi-squared)   │
+│  /api/ml/v1/* public API   │       │  /predict/intent     (BERT+RF)       │
+│  (API key auth)            │       │  /recommend          (GRU+ANN+AGE)   │
+│  AI Insights dashboard     │       │  /predict/rage-click (Isolation)     │
+│  User preferences API     │       │  /predict/cluster   (UMAP+HDBSCAN)   │
+│  API Key management       │       │  /recommend/bandit  (LinUCB)          │
+└─────────────────────────────┘       │  /ab-test/*         (Chi-squared)   │
                                       │  /predict/session-replay (rrweb)    │
                                       │  /train/*            (GPU loop)    │
+                                      │  /embeddings/sync    (ONNX+ST)     │
                                       │  /health              (GPU info)   │
                                       └───────────┬──────────────────────────┘
                                                   │
@@ -66,9 +72,8 @@ umami App (Next.js port 3000)          ML Service (FastAPI port 8001)
                                                 │
                                           ┌─────▼─────┐
                                           │ pgvector  │
-                                          │ + vectors │
-                                          │ Streaming │
-                                          │ DiskANN   │
+                                          │ 3 x DiskANN │
+                                          │ (256+384+4096)│
                                           └───────────┘
 ```
 
@@ -85,11 +90,7 @@ umami App (Next.js port 3000)          ML Service (FastAPI port 8001)
 ### Quick Start with Docker
 
 ```bash
-# Build and start with PG18 + TimescaleDB + AGE
 docker compose up -d
-
-# The db service builds a custom image with all extensions
-# The umami service runs on port 3000
 ```
 
 ### Manual Setup
@@ -140,32 +141,27 @@ pip install -r ml/requirements.txt
 python3 ml/run.py
 ```
 
-### API Endpoints (22 total)
+### Recommended Modes
 
-| Method | Endpoint | Description |
+| Mode | Description | How It Works |
 |---|---|---|
-| `GET` | `/health` | GPU status, all 9 model loaded states |
-| `POST` | `/predict/next-page` | Predict next page(s) a visitor will view |
-| `POST` | `/predict/funnel-drop` | Predict drop-off probability at funnel steps |
-| `POST` | `/predict/intent` | Classify session intent (8 categories) |
-| `POST` | `/recommend` | Session-based content recommendations |
-| `POST` | `/predict/rage-click` | Detect user frustration from click patterns |
-| `POST` | `/predict/cluster` | Predict visitor archetype (UMAP + HDBSCAN) |
-| `POST` | `/predict/session-replay` | Analyze rrweb session replay for UX signals |
-| `POST` | `/recommend/bandit` | Contextual bandit recommendations (online learning) |
-| `POST` | `/recommend/bandit/reward` | Record reward feedback for bandit |
-| `POST` | `/ab-test/create` | Create an A/B test experiment |
-| `POST` | `/ab-test/assign` | Assign visitor to variant (deterministic) |
-| `POST` | `/ab-test/record` | Record conversion for a variant |
-| `GET` | `/ab-test/results` | All experiment results with significance |
-| `GET` | `/ab-test/results/{id}` | Single experiment results |
-| `POST` | `/train/next-page` | Train next-page predictor |
-| `POST` | `/train/funnel` | Train funnel drop-off predictor |
-| `POST` | `/train/intent` | Train session intent classifier |
-| `POST` | `/train/recommender` | Train session-based recommender |
-| `POST` | `/train/rage-click` | Train rage-click detector |
-| `POST` | `/models/save` | Save all trained models to disk |
-| `POST` | `/models/load` | Load all saved models from disk |
+| **Token** | URL pattern matching | GRU neural network on page URL sequences. Fast, works with minimal data. |
+| **Semantic** | Page meaning understanding | Embedding model (MiniLM or Qwen3) + pgvector DiskANN ANN search. |
+| **Hybrid** | Best quality | Weighted fusion of Token + Semantic. Slider-adjustable weight per user. |
+
+### Embedding Models
+
+| Model | Dimensions | Modes | Requirements |
+|---|---|---|---|
+| **MiniLM** (default) | 384 (configurable) | Local only | 80MB, always available via SentenceTransformer |
+| **Qwen3** | 4096 (configurable) | Local or Cloud | ~2GB for local, or API URL + key for cloud (BYOK) |
+
+### Embedding Modes
+
+| Mode | Description | Configuration |
+|---|---|---|
+| **Local** | Runs on GPU/CPU via SentenceTransformer | No additional setup needed for MiniLM. Qwen3 requires HuggingFace token. |
+| **Cloud** | OpenAI-compatible API (Together AI, Alibaba Cloud, etc.) | Set API URL + Key in dashboard (per-user, BYOK). Falls back to local MiniLM on failure. |
 
 ### ML Models (9 total)
 
@@ -174,7 +170,7 @@ python3 ml/run.py
 | 1 | **NextPagePredictor** | Markov chain + Transformer | PyTorch (RTX 3060) | Session page sequences |
 | 2 | **FunnelPredictor** | XGBoost (hist tree) | CUDA (P40 via ONNX) | Session features + labels |
 | 3 | **SessionIntentClassifier** | SentenceTransformer + RandomForest | PyTorch (RTX 3060) | Page URLs + session metadata |
-| 4 | **Recommender** | GRU encoder + ANN (pgvectorscale) | PyTorch (RTX 3060) | Session page sequences |
+| 4 | **Recommender** | GRU encoder + ANN (pgvectorscale) + AGE graph | PyTorch (RTX 3060) | Session page sequences |
 | 5 | **RageClickDetector** | Isolation Forest + rule-based | CPU (sklearn) | Heatmap click coordinates |
 | 6 | **JourneyClusterer** | UMAP + HDBSCAN | CPU (sklearn) | Session feature vectors |
 | 7 | **ContextualBandit** | LinUCB (online learning) | CPU (numpy) | Real-time feedback |
@@ -187,44 +183,85 @@ python3 ml/run.py
 # Train all models for a specific website (last 30 days)
 python3 ml/train_all.py --website <website_id> --days 30
 
-# Or via API
+# Or via the dashboard: click "Train All Models"
+# Or via API:
 curl -X POST http://localhost:8001/train/next-page \
   -H 'Content-Type: application/json' \
   -d '{"website_id":"<id>","start_date":"2026-06-01","end_date":"2026-07-01"}'
 ```
 
+### Semantic Embedding Sync
+
+```bash
+# Sync embeddings via dashboard: click "Sync Embeddings"
+# Or via API:
+curl -X POST http://localhost:8001/embeddings/sync \
+  -H 'Content-Type: application/json' \
+  -d '{"website_id":"<id>","model":"minilm","mode":"local"}'
+```
+
+Auto-indexing runs every 15 min via the AGE sync cron job.
+
 ### Scheduled Jobs
 
 | Job | Schedule | Function |
 |---|---|---|
-| `umami-age-sync` | Every 15 min | Sync TimescaleDB data to Apache AGE graph |
+| `umami-age-sync` | Every 15 min | Sync TimescaleDB data to Apache AGE graph + auto-index semantic embeddings |
 | `umami-ml-train` | Daily 3 AM | Retrain all ML models from latest data |
 
 ---
 
-## 🖥 umami.recommend() — Client-Side Embed API
+## 🔑 Public ML API (v1)
 
-Drop this script on any page to get real-time content recommendations:
+Third-party services can access ML predictions without a Umami login session.
 
-```html
-<script src="https://your-umami-instance.com/api/ml/embed.js"
-  data-website-id="xxx"
-  data-top-k="5"
-  data-theme="light">
-</script>
-<div class="umami-recommendations"></div>
+See [`docs/ml-api.md`](docs/ml-api.md) for complete documentation.
+
+**Quick example:**
+
+```bash
+# 1. Generate an API key (from Settings > ML API Keys)
+curl -X POST https://your-umami.com/api/admin/ml/keys \
+  -H "authorization: Bearer YOUR_ADMIN_TOKEN" \
+  -d '{"websiteId":"YOUR_WEBSITE_ID","name":"My App"}'
+
+# 2. Use the key
+curl -X POST https://your-umami.com/api/ml/v1/recommend \
+  -H "x-api-key: umami_ml_YOUR_KEY" \
+  -d '{"sessionPages":["/","/pricing"],"topK":5,"mode":"hybrid"}'
 ```
 
-The script auto-discovers `<div class="umami-recommendations">` elements and populates them with recommended page links. Supports light/dark themes, click tracking via `sendBeacon`, and graceful fallback when the ML service is unavailable.
+---
 
-### ML Integration into Existing Reports
+## 🖥 AI Insights Dashboard
 
-The journey and funnel reports are automatically enriched with ML predictions:
+The AI Insights page is available in the website navigation under **Behavior > AI Insights**.
 
-- **Journey report** (`/api/reports/journey`) — returns `ml.next_pages` with predicted next pages for the top journey path
-- **Funnel report** (`/api/reports/funnel`) — returns `ml.drop_off_probability` with ML-based drop-off risk
+### Controls
 
-Both integrations are best-effort — if the ML service is down, the reports return SQL data only.
+| Control | Description |
+|---|---|
+| **Train All Models** | Retrain all 9 ML models from latest session data |
+| **Sync Embeddings** | Generate semantic embeddings for all known pages (model/mode-aware) |
+| **Refresh Insights** | Re-fetch all ML predictions |
+| **Rec Mode** | Token / Semantic / Hybrid |
+| **Weight Slider** | Adjust Token⇄Semantic blend (Hybrid mode only) |
+| **Model** | MiniLM (384d) / Qwen3 (4096d) — switching warns about incompatible embeddings |
+| **Mode** | Local / Cloud — Cloud shows API URL + Key inputs (BYOK) |
+
+### Panels
+
+- **Recommended Pages** — content suggestions based on session context
+- **Predicted Next Pages** — most likely pages the visitor will view next
+- **Session Intent** — automatic intent classification
+- **Funnel Drop-off Risk** — real-time probability of abandonment
+- **Frustration Detection** — rage clicks, dead clicks, mouse shaking
+- **Visitor Archetype** — unsupervised journey clustering
+- **Bandit Recommendations** — online learning for content recs
+- **Session Replay Analysis** — UX signal detection from rrweb
+- **Web Vitals Performance** — LCP, CLS, INP, FCP, TTFB
+- **A/B Test Results** — statistical experiment outcomes
+- **ML System Health** — GPU info, model status, embeddings status
 
 ---
 
@@ -253,6 +290,22 @@ Both integrations are best-effort — if the ML service is down, the reports ret
 | `heatmap_event` | 1 day | 1 year | website_id (4) |
 | `revenue` | 7 days | 2 years | — |
 
+### pgvectorscale Indexes
+
+```sql
+-- GRU token embeddings (256d)
+CREATE INDEX idx_page_embeddings_ann ON page_embeddings 
+  USING diskann (embedding vector_cosine_ops);
+
+-- MiniLM semantic embeddings (384d)
+CREATE INDEX idx_page_embeddings_semantic_ann ON page_embeddings 
+  USING diskann (semantic_embedding vector_cosine_ops);
+
+-- Qwen3 embeddings (4096d)
+CREATE INDEX idx_page_embeddings_qwen3_ann ON page_embeddings 
+  USING diskann (qwen3_embedding vector_cosine_ops);
+```
+
 ### Apache AGE Graph
 
 The `umami_analytics` graph stores:
@@ -266,27 +319,6 @@ MATCH (p1:Page)-[r:LEADS_TO]->(p2:Page)
 RETURN p1.url, p2.url, r.count
 ORDER BY r.count DESC LIMIT 10
 ```
-
-### pgvectorscale Index
-
-```sql
-CREATE INDEX idx_page_embeddings_ann 
-    ON page_embeddings 
-    USING diskann (embedding vector_cosine_ops)
-    WITH (num_neighbors=50, search_list_size=200, max_alpha=1.2);
-```
-
----
-
-## 🖥 AI Insights Dashboard
-
-The AI Insights page is available in the website navigation under **Behavior > AI Insights**.
-
-It displays:
-- **Recommended Pages** — content suggestions based on session context
-- **Predicted Next Pages** — most likely pages the visitor will view next
-- **Session Intent** — automatic intent classification
-- **Funnel Drop-off Risk** — real-time probability of abandonment
 
 ---
 
@@ -303,6 +335,12 @@ It displays:
 | `ML_MODEL_DIR` | `ml/models/saved` | Model storage path |
 | `ML_API_PORT` | `8001` | ML API server port |
 | `AGE_ENABLED` | `true` | Enable Apache AGE graph |
+| `EMBEDDING_MODEL` | `minilm` | Default embedding model (`minilm` or `qwen3`) |
+| `EMBEDDING_MODE` | `local` | Default embedding mode (`local` or `cloud`) |
+| `EMBEDDING_DIM_MINILM` | `384` | MiniLM embedding dimension |
+| `EMBEDDING_DIM_QWEN3` | `4096` | Qwen3 embedding dimension |
+| `EMBEDDING_API_URL` | — | Fallback cloud embedding API URL (env-level) |
+| `EMBEDDING_API_KEY` | — | Fallback cloud embedding API key (env-level) |
 
 ---
 

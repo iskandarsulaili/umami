@@ -825,6 +825,48 @@ async def load_models():
     return {"status": "complete", "loaded": loaded}
 
 
+class EmbedSyncRequest(BaseModel):
+    website_id: str
+    model: str = "minilm"
+    mode: str = "local"
+
+
+@app.post("/embeddings/sync")
+async def sync_embeddings(req: EmbedSyncRequest):
+    """Generate and store semantic embeddings for all known pages."""
+    from ml.data.session_sequence import SessionDataExtractor
+    from ml.models.semantic_embedder import sync_semantic_embeddings
+    
+    try:
+        with get_extractor() as extractor:
+            # Get all unique page URLs for this website
+            end = datetime.utcnow()
+            start = end - timedelta(days=365)
+            sequences = extractor.get_session_sequences(
+                req.website_id, start, end, min_length=1, max_sessions=50000
+            )
+            all_urls = list(set(p for seq in sequences for p in seq.pages))
+            
+            if not all_urls:
+                return {"status": "complete", "synced": 0, "message": "No pages found"}
+            
+            synced = sync_semantic_embeddings(
+                req.website_id, all_urls,
+                model=req.model, mode=req.mode,
+            )
+            
+            return {
+                "status": "complete",
+                "synced": synced,
+                "model": req.model,
+                "mode": req.mode,
+                "total_pages": len(all_urls),
+            }
+    except Exception as e:
+        logger.error(f"Embedding sync failed: {e}")
+        raise HTTPException(500, str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

@@ -133,24 +133,28 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const [availablePages, setAvailablePages] = useState<string[]>([]);
   const [training, setTraining] = useState(false);
   const [trainResult, setTrainResult] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
   const [recMode, setRecModeState] = useState<string>('token');
   const [embModel, setEmbModelState] = useState<string>('minilm');
   const [embMode, setEmbModeState] = useState<string>('local');
   const [embApiUrl, setEmbApiUrlState] = useState<string>('');
   const [embApiKey, setEmbApiKeyState] = useState<string>('');
+  const [semanticWeight, setSemanticWeightState] = useState<number>(0.6);
   const [showKey, setShowKey] = useState(false);
 
   // Initialize preferences from server, fall back to localStorage
   useEffect(() => {
-    const keys = ['umami_rec_mode', 'umami_emb_model', 'umami_emb_mode', 'umami_emb_api_url', 'umami_emb_api_key'];
+    const keys = ['umami_rec_mode', 'umami_emb_model', 'umami_emb_mode', 'umami_emb_api_url', 'umami_emb_api_key', 'umami_semantic_weight'];
     const setters = {
       umami_rec_mode: setRecModeState,
       umami_emb_model: setEmbModelState,
       umami_emb_mode: setEmbModeState,
       umami_emb_api_url: setEmbApiUrlState,
       umami_emb_api_key: setEmbApiKeyState,
+      umami_semantic_weight: (v: string) => setSemanticWeightState(parseFloat(v) || 0.6),
     };
-    const prefKeys = ['rec_mode', 'emb_model', 'emb_mode', 'emb_api_url', 'emb_api_key'];
+    const prefKeys = ['rec_mode', 'emb_model', 'emb_mode', 'emb_api_url', 'emb_api_key', 'semantic_weight'];
 
     // Load from localStorage first (instant)
     for (const k of keys) {
@@ -194,6 +198,11 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
     localStorage.setItem('umami_emb_api_key', v);
     post('/user/preferences', { key: 'emb_api_key', value: v }).catch(() => {});
   };
+  const setSemanticWeight = (v: number) => {
+    setSemanticWeightState(v);
+    localStorage.setItem('umami_semantic_weight', String(v));
+    post('/user/preferences', { key: 'semantic_weight', value: String(v) }).catch(() => {});
+  };
 
   const loadInsights = useCallback(async () => {
     setLoading(true);
@@ -207,7 +216,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
       };
 
       const results = await Promise.allSettled([
-        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight: 0.6, embeddingModel: embModel, embeddingMode: embMode, embeddingApiUrl: embApiUrl, embeddingApiKey: embApiKey }),
+        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight, embeddingModel: embModel, embeddingMode: embMode, embeddingApiUrl: embApiUrl, embeddingApiKey: embApiKey }),
         post('/ml/next-page', { websiteId, sessionPages: ['/'], topK: 10, useTransformer: false }),
         post('/ml/intent', { websiteId, sessionPages: ['/'], sessionFeatures: session }),
         post('/ml/funnel-drop', { websiteId, session, threshold: 0.5 }),
@@ -272,6 +281,37 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const handleRefresh = useCallback(() => {
     loadInsights();
   }, [loadInsights]);
+
+  const handleSync = useCallback(async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const result = await post('/ml/embeddings/sync', {
+        websiteId,
+        model: embModel,
+        mode: embMode,
+      });
+      setSyncResult(`Indexed ${result?.synced || 0} pages (${embModel}, ${embMode})`);
+    } catch (e: any) {
+      setSyncResult('Sync failed: ' + (e.message || 'unknown error'));
+    } finally {
+      setSyncing(false);
+    }
+  }, [websiteId, post, embModel, embMode]);
+
+  const switchModel = (newModel: string) => {
+    if (embApiKey || embApiUrl) {
+      // Check if API key/url seem valid (non-empty)
+    }
+    const msg = `Switching from ${embModel} to ${newModel}.\n\nExisting embeddings for "${embModel}" will NOT work with "${newModel}".\nClick "Sync Embeddings" after switching to generate embeddings for the new model.\n\nProceed?`;
+    if (window.confirm(msg)) {
+      setEmbModel(newModel);
+    }
+  };
+
+  const switchMode = (newMode: string) => {
+    setEmbMode(newMode);
+  };
 
   const trainedCount = mlHealth?.models ? Object.values(mlHealth.models).filter((m: any) => m.trained).length : 0;
   const totalModels = mlHealth?.models ? Object.keys(mlHealth.models).length : 0;
@@ -485,14 +525,20 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
         {/* Row 6: ML System Health */}
         <Panel title={t(labels.mlSystemHealth)} description={t(labels.mlSystemHealthDesc)}>
           <Row gap="2" paddingY="2" alignItems="center">
-            <Button variant="primary" onPress={handleTrain} isDisabled={training}>
+            <Button variant={training ? 'primary' : 'primary'} onPress={handleTrain} isDisabled={training}>
               {training ? 'Training...' : 'Train All Models'}
+            </Button>
+            <Button variant={syncing ? 'primary' : 'quiet'} onPress={handleSync} isDisabled={syncing}>
+              {syncing ? 'Indexing...' : 'Sync Embeddings'}
             </Button>
             <Button variant="quiet" onPress={handleRefresh}>
               Refresh Insights
             </Button>
             {trainResult && (
               <Text size="sm" color={trainResult.includes('failed') ? 'danger' : 'success'}>{trainResult}</Text>
+            )}
+            {syncResult && (
+              <Text size="sm" color={syncResult.includes('failed') ? 'danger' : 'success'}>{syncResult}</Text>
             )}
           </Row>
           <Row gap="1" paddingY="1" alignItems="center">
@@ -511,23 +557,32 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
             <Text size="xs" color="muted">
               {recMode === 'token' ? 'URL pattern matching via GRU neural network. Fast, works with minimal data.' :
                recMode === 'semantic' ? 'Page meaning via embedding model. Toggle model/mode below.' :
-               'Fused Token + Semantic with adjustable weight (default 60% semantic, 40% token).'}
+               `Fused Token + Semantic (${embModel}, ${embMode}) with weight: ${(semanticWeight * 100).toFixed(0)}% semantic.`}
             </Text>
           </Row>
+          {recMode === 'hybrid' && (
+            <Row gap="2" paddingY="1" alignItems="center">
+              <Text size="xs" color="muted">Token {(100 - Math.round(semanticWeight * 100))}%</Text>
+              <input type="range" min="0" max="100" value={Math.round(semanticWeight * 100)}
+                onChange={e => setSemanticWeight(parseInt(e.target.value) / 100)}
+                style={{ flex: 1, maxWidth: 200, cursor: 'pointer' }} />
+              <Text size="xs" color="muted">Semantic {Math.round(semanticWeight * 100)}%</Text>
+            </Row>
+          )}
           <Row gap="1" paddingY="1" alignItems="center" wrap="wrap">
             <Text size="xs" color="muted" transform="uppercase">Model:</Text>
-            <Button variant={embModel === 'minilm' ? 'primary' : 'quiet'} onPress={() => setEmbModel('minilm')}>
+            <Button variant={embModel === 'minilm' ? 'primary' : 'quiet'} onPress={() => switchModel('minilm')}>
               MiniLM (384d)
             </Button>
-            <Button variant={embModel === 'qwen3' ? 'primary' : 'quiet'} onPress={() => setEmbModel('qwen3')}>
-              Qwen3 ({embModel === 'qwen3' ? '4096d' : '4096d'})
+            <Button variant={embModel === 'qwen3' ? 'primary' : 'quiet'} onPress={() => switchModel('qwen3')}>
+              Qwen3 (4096d)
             </Button>
             <Text size="xs" color="muted" paddingX="1">|</Text>
             <Text size="xs" color="muted" transform="uppercase">Mode:</Text>
-            <Button variant={embMode === 'local' ? 'primary' : 'quiet'} onPress={() => setEmbMode('local')}>
+            <Button variant={embMode === 'local' ? 'primary' : 'quiet'} onPress={() => switchMode('local')}>
               Local
             </Button>
-            <Button variant={embMode === 'cloud' ? 'primary' : 'quiet'} onPress={() => setEmbMode('cloud')}>
+            <Button variant={embMode === 'cloud' ? 'primary' : 'quiet'} onPress={() => switchMode('cloud')}>
               Cloud
             </Button>
           </Row>

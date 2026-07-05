@@ -24,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
 
 from ml.data.age_graph import AgeGraphClient
+from ml.data.session_sequence import SessionDataExtractor
 from ml.config import CONFIG
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -99,6 +100,22 @@ def main():
     
     client.close()
     logger.info("=== Graph Sync Complete ===")
+
+    # Auto-index: sync semantic embeddings for new pages found since last sync
+    try:
+        from ml.models.semantic_embedder import sync_semantic_embeddings
+        with SessionDataExtractor(CONFIG.db.url) as extractor:
+            for wid in websites:
+                sequences = extractor.get_session_sequences(
+                    wid, start_date, end_date, min_length=1, max_sessions=10000
+                )
+                all_urls = list(set(p for seq in sequences for p in seq.pages))
+                if all_urls:
+                    synced = sync_semantic_embeddings(wid, all_urls)
+                    if synced:
+                        logger.info(f"  Semantic indexed: {synced} pages for {wid}")
+    except Exception as e:
+        logger.debug(f"Auto semantic indexing skipped: {e}")
 
 
 if __name__ == "__main__":

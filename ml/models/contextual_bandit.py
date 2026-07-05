@@ -165,7 +165,8 @@ class ContextualBandit(BaseModel):
     
     def train(self, sessions: list[dict] = None):
         """Initialize the bandit. No batch training needed."""
-        self.n_features = 16  # matches _build_context output
+        # Compute actual feature count from a sample context
+        self.n_features = len(self._build_context({}))
         self.bandit = LinUCB(n_features=self.n_features, alpha=0.5)
         self.is_trained = True
         logger.info(f"ContextualBandit initialized with {self.n_features} features")

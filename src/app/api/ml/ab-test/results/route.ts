@@ -4,11 +4,11 @@ import { canViewWebsiteSection } from '@/permissions';
 
 const ML_API_URL = process.env.ML_API_URL || 'http://localhost:8001';
 
-export async function POST(request: Request) {
+async function handleRequest(request: Request) {
   const { auth, body, error } = await parseRequest(request);
   if (error) return error();
 
-  const { websiteId } = body;
+  const websiteId = body?.websiteId || '';
 
   if (!(await canViewWebsiteSection(auth, websiteId, 'journeys'))) {
     return unauthorized();
@@ -25,4 +25,12 @@ export async function POST(request: Request) {
   } catch (e: any) {
     return serverError(e);
   }
+}
+
+export async function GET(request: Request) {
+  return handleRequest(request);
+}
+
+export async function POST(request: Request) {
+  return handleRequest(request);
 }

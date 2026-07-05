@@ -354,7 +354,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
           </Column>
           <Column padding="3" borderRadius backgroundColor="surface-raised" gap="1">
             <Text size="xs" color="muted" transform="uppercase">{t(labels.gpu)}</Text>
-            <Text size="xl" weight="bold">{gpuLabel}</Text>
+            <Text size="xl" weight="bold" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', display: 'block' }}>{gpuLabel}</Text>
             <Text size="xs" color="muted">{isCpu ? t(labels.cpu) : t(labels.gbFree, { free: summaryFreeGb, total: summaryTotalGb })}</Text>
           </Column>
           <Column padding="3" borderRadius backgroundColor="surface-raised" gap="1">
@@ -535,7 +535,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
 
         {/* Row 6: ML System Health */}
         <Panel title={t(labels.mlSystemHealth)} description={t(labels.mlSystemHealthDesc)}>
-          <Row gap="2" paddingY="2" alignItems="center">
+          <Row gap="2" paddingY="2" alignItems="center" wrap="wrap">
             <Button variant={training ? 'primary' : 'primary'} onPress={handleTrain} isDisabled={training}>
               {training ? 'Training...' : 'Train All Models'}
             </Button>
@@ -546,13 +546,13 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
               Refresh Insights
             </Button>
             {trainResult && (
-              <Text size="sm" color={trainResult.includes('failed') ? 'danger' : 'success'}>{trainResult}</Text>
+              <Text size="sm" color={trainResult.includes('failed') ? 'danger' : 'success'} style={{ width: '100%' }}>{trainResult}</Text>
             )}
             {syncResult && (
-              <Text size="sm" color={syncResult.includes('failed') ? 'danger' : 'success'}>{syncResult}</Text>
+              <Text size="sm" color={syncResult.includes('failed') ? 'danger' : 'success'} style={{ width: '100%' }}>{syncResult}</Text>
             )}
           </Row>
-          <Row gap="1" paddingY="1" alignItems="center">
+          <Row gap="1" paddingY="1" alignItems="center" wrap="wrap">
             <Text size="xs" color="muted" transform="uppercase">Rec Mode:</Text>
             <Button variant={recMode === 'token' ? 'primary' : 'quiet'} onPress={() => { localStorage.setItem('umami_rec_mode', 'token'); setRecMode('token'); }}>
               Token
@@ -576,7 +576,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
               <Text size="xs" color="muted">Token {(100 - Math.round(semanticWeight * 100))}%</Text>
               <input type="range" min="0" max="100" value={Math.round(semanticWeight * 100)}
                 onChange={e => setSemanticWeight(parseInt(e.target.value) / 100)}
-                style={{ flex: 1, maxWidth: 200, cursor: 'pointer' }} />
+                style={{ flex: 1, maxWidth: '100%', cursor: 'pointer' }} />
               <Text size="xs" color="muted">Semantic {Math.round(semanticWeight * 100)}%</Text>
             </Row>
           )}
@@ -599,12 +599,12 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
           </Row>
           {embMode === 'cloud' && (
             <Row gap="2" paddingY="1" alignItems="center" wrap="wrap">
-              <Text size="xs" color="muted" transform="uppercase">API URL:</Text>
+              <Text size="xs" color="muted" transform="uppercase" style={{ width: '100%' }}>API URL:</Text>
               <input type="text" value={embApiUrl} onChange={e => setEmbApiUrl(e.target.value)} placeholder="https://api.together.xyz/v1"
-                style={{ flex: 1, minWidth: 200, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
-              <Text size="xs" color="muted" transform="uppercase">Key:</Text>
+                style={{ flex: '1 1 100%', minWidth: 200, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
+              <Text size="xs" color="muted" transform="uppercase" style={{ width: '100%', marginTop: 4 }}>Key:</Text>
               <input type={showKey ? 'text' : 'password'} value={embApiKey} onChange={e => setEmbApiKey(e.target.value)} placeholder="sk-..."
-                style={{ width: 200, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
+                style={{ flex: '1 1 calc(100% - 80px)', minWidth: 140, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
               <Button variant="quiet" onPress={() => setShowKey(!showKey)}>
                 {showKey ? 'Hide' : 'Show'}
               </Button>
@@ -638,7 +638,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
                   <Column key={i} gap="1" paddingY="1" paddingX="2" borderRadius backgroundColor={i % 2 === 0 ? 'surface-raised' : undefined}>
                     <Row gap="2" alignItems="center">
                       <Text size="sm" color="muted">{t(labels.device)} #{i + 1}:</Text>
-                      <Text size="sm" weight="bold">{isDeviceCpu ? 'CPU' : dev.device}</Text>
+                      <Text size="sm" weight="bold" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{isDeviceCpu ? 'CPU' : dev.device}</Text>
                     </Row>
                     {!isDeviceCpu && (
                       <Row gap="2" alignItems="center">
@@ -654,7 +654,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
               <Text weight="bold" size="sm">{t(labels.models)}</Text>
               {mlHealth?.models ? Object.entries(mlHealth.models).map(([name, m]: [string, any]) => (
                 <Row key={name} gap="2" alignItems="center">
-                  <Text size="sm" color="muted" style={{ minWidth: 180 }}>{name}</Text>
+                  <Text size="sm" color="muted" style={{ minWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</Text>
                   <Text size="xs" color={m.trained ? 'success' : 'warning'}>{m.trained ? t(labels.trained) : t(labels.untrained)}</Text>
                 </Row>
               )) : <Text size="sm" color="muted">{t(labels.mlServiceNotAvailable)}</Text>}

@@ -231,7 +231,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
       };
 
       const results = await Promise.allSettled([
-        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight, embeddingModel: embModel, embeddingMode, embeddingDim: embDim, embeddingApiUrl: embApiUrl, embeddingApiKey: embApiKey }),
+        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight, embeddingModel: embModel, embeddingMode: embProvider, embeddingDim: embDim, embeddingApiUrl: embApiUrl, embeddingApiKey: embApiKey }),
         post('/ml/next-page', { websiteId, sessionPages: ['/'], topK: 10, useTransformer: false }),
         post('/ml/intent', { websiteId, sessionPages: ['/'], sessionFeatures: session }),
         post('/ml/funnel-drop', { websiteId, session, threshold: 0.5 }),
@@ -572,7 +572,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
             <Text size="xs" color="muted">
               {recMode === 'token' ? 'URL pattern matching via GRU neural network. Fast, works with minimal data.' :
                recMode === 'semantic' ? 'Page meaning via embedding model. Toggle model/mode below.' :
-               `Fused Token + Semantic (${embModel}, ${embMode}) with weight: ${(semanticWeight * 100).toFixed(0)}% semantic.`}
+               `Fused Token + Semantic (${embModel}, ${embProvider}) with weight: ${(semanticWeight * 100).toFixed(0)}% semantic.`}
             </Text>
           </Row>
           {recMode === 'hybrid' && (

@@ -480,6 +480,8 @@ class Recommender(BaseModel):
         mode: str = "token",
         semantic_weight: float = 0.6,
         website_id: Optional[str] = None,
+        embedding_model: str = "minilm",
+        embedding_mode: str = "local",
     ) -> list[dict]:
         """
         Full recommendation pipeline for a session.
@@ -491,15 +493,17 @@ class Recommender(BaseModel):
             mode: 'token' (GRU), 'semantic' (SentenceTransformer), or 'hybrid'
             semantic_weight: Weight for semantic scores in hybrid mode (0-1)
             website_id: Required for 'semantic' and 'hybrid' modes
+            embedding_model: 'minilm' (384d) or 'qwen3' (2048d)
+            embedding_mode: 'local' (GPU/CPU) or 'cloud' (API)
 
         Returns:
             Ranked list of {page, score, base_similarity} dicts
         """
         if mode == "hybrid":
-            return self._hybrid_recommend(session_pages, session_features, top_k, semantic_weight, website_id)
+            return self._hybrid_recommend(session_pages, session_features, top_k, semantic_weight, website_id, embedding_model, embedding_mode)
 
         if mode == "semantic" and SEMANTIC_AVAILABLE:
-            return self._semantic_recommend(session_pages, website_id or "", top_k)
+            return self._semantic_recommend(session_pages, website_id or "", top_k, embedding_model, embedding_mode)
 
         # Default: token-based (GRU + pgvector)
         return self._token_recommend(session_pages, session_features, top_k)
@@ -535,26 +539,26 @@ class Recommender(BaseModel):
         session_pages: list[str],
         website_id: str,
         top_k: int = 20,
+        embedding_model: str = "minilm",
+        embedding_mode: str = "local",
     ) -> list[dict]:
-        """Semantic recommendation using SentenceTransformer embeddings."""
+        """Semantic recommendation using configurable embedding model."""
         if not SEMANTIC_AVAILABLE:
             logger.warning("Semantic embedder not available, falling back to token")
             return self._token_recommend(session_pages, None, top_k)
 
         exclude = set(session_pages) if session_pages else set()
 
-        # Build a query text from the session context
         page_texts = [semantic_embedder.embed_page_url(p) for p in session_pages]
         query_text = " [SEP] ".join(page_texts)
 
-        # Boost the most recent page
         if session_pages:
             last_text = semantic_embedder.embed_page_url(session_pages[-1])
             query_text = f"{last_text} [SEP] {query_text}"
 
-        # Try pgvector first
         candidates = semantic_embedder.retrieve_semantic_candidates(
             query_text, website_id, top_k=top_k * 3, exclude=exclude,
+            model=embedding_model, mode=embedding_mode,
         )
 
         if not candidates:
@@ -590,6 +594,8 @@ class Recommender(BaseModel):
         top_k: int = 20,
         semantic_weight: float = 0.6,
         website_id: Optional[str] = None,
+        embedding_model: str = "minilm",
+        embedding_mode: str = "local",
     ) -> list[dict]:
         """
         Hybrid recommendation: fuses token-based + semantic scores.
@@ -598,12 +604,10 @@ class Recommender(BaseModel):
         """
         token_weight = 1.0 - semantic_weight
 
-        # Get token-based results
         token_results = self._token_recommend(session_pages, session_features, top_k * 2)
-        # Get semantic results (graceful if unavailable)
         semantic_results = []
         if SEMANTIC_AVAILABLE:
-            semantic_results = self._semantic_recommend(session_pages, website_id or "", top_k * 2)
+            semantic_results = self._semantic_recommend(session_pages, website_id or "", top_k * 2, embedding_model, embedding_mode)
 
         # If one mode returned nothing, use the other exclusively
         if not token_results:

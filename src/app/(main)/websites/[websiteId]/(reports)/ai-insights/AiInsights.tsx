@@ -134,27 +134,38 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const [training, setTraining] = useState(false);
   const [trainResult, setTrainResult] = useState<string | null>(null);
   const [recMode, setRecModeState] = useState<string>('token');
+  const [embModel, setEmbModelState] = useState<string>('minilm');
+  const [embMode, setEmbModeState] = useState<string>('local');
 
-  // Initialize rec mode from server, fall back to localStorage, fall back to 'token'
+  // Initialize preferences from server, fall back to localStorage
   useEffect(() => {
-    const local = typeof window !== 'undefined' ? localStorage.getItem('umami_rec_mode') : null;
-    if (local) {
-      setRecModeState(local);
-    }
-    // Fetch from server for authoritative value (survives browser clear & server reboot)
-    get('/user/preferences?key=rec_mode').then(data => {
-      if (data?.value) {
-        setRecModeState(data.value);
-        if (typeof window !== 'undefined') localStorage.setItem('umami_rec_mode', data.value);
-      }
-    }).catch(() => {});
+    const localRec = typeof window !== 'undefined' ? localStorage.getItem('umami_rec_mode') : null;
+    const localEmbModel = typeof window !== 'undefined' ? localStorage.getItem('umami_emb_model') : null;
+    const localEmbMode = typeof window !== 'undefined' ? localStorage.getItem('umami_emb_mode') : null;
+    if (localRec) setRecModeState(localRec);
+    if (localEmbModel) setEmbModelState(localEmbModel);
+    if (localEmbMode) setEmbModeState(localEmbMode);
+
+    // Fetch from server for authoritative values
+    get('/user/preferences?key=rec_mode').then(d => { if (d?.value) { setRecModeState(d.value); localStorage.setItem('umami_rec_mode', d.value); } }).catch(() => {});
+    get('/user/preferences?key=emb_model').then(d => { if (d?.value) { setEmbModelState(d.value); localStorage.setItem('umami_emb_model', d.value); } }).catch(() => {});
+    get('/user/preferences?key=emb_mode').then(d => { if (d?.value) { setEmbModeState(d.value); localStorage.setItem('umami_emb_mode', d.value); } }).catch(() => {});
   }, []);
 
   const setRecMode = (mode: string) => {
     setRecModeState(mode);
-    if (typeof window !== 'undefined') localStorage.setItem('umami_rec_mode', mode);
-    // Persist to server (fire-and-forget)
+    localStorage.setItem('umami_rec_mode', mode);
     post('/user/preferences', { key: 'rec_mode', value: mode }).catch(() => {});
+  };
+  const setEmbModel = (m: string) => {
+    setEmbModelState(m);
+    localStorage.setItem('umami_emb_model', m);
+    post('/user/preferences', { key: 'emb_model', value: m }).catch(() => {});
+  };
+  const setEmbMode = (m: string) => {
+    setEmbModeState(m);
+    localStorage.setItem('umami_emb_mode', m);
+    post('/user/preferences', { key: 'emb_mode', value: m }).catch(() => {});
   };
 
   const loadInsights = useCallback(async () => {
@@ -169,7 +180,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
       };
 
       const results = await Promise.allSettled([
-        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight: 0.6 }),
+        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight: 0.6, embeddingModel: embModel, embeddingMode: embMode }),
         post('/ml/next-page', { websiteId, sessionPages: ['/'], topK: 10, useTransformer: false }),
         post('/ml/intent', { websiteId, sessionPages: ['/'], sessionFeatures: session }),
         post('/ml/funnel-drop', { websiteId, session, threshold: 0.5 }),

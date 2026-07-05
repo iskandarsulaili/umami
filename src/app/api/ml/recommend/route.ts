@@ -7,7 +7,7 @@ export async function POST(request: Request) {
   const { auth, body, error } = await parseRequest(request);
   if (error) return error();
 
-  const { websiteId, sessionPages, sessionFeatures, topK, mode, semanticWeight } = body;
+  const { websiteId, sessionPages, sessionFeatures, topK, mode, semanticWeight, embeddingModel, embeddingMode } = body;
 
   if (!(await canViewWebsiteSection(auth, websiteId, 'journeys'))) {
     return unauthorized();
@@ -21,6 +21,8 @@ export async function POST(request: Request) {
       top_k: topK || 20,
       mode: mode || 'token',
       semantic_weight: semanticWeight ?? 0.6,
+      embedding_model: embeddingModel || 'minilm',
+      embedding_mode: embeddingMode || 'local',
     });
     return json(data);
   } catch (e: any) {

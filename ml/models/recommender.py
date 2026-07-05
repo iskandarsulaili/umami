@@ -482,6 +482,8 @@ class Recommender(BaseModel):
         website_id: Optional[str] = None,
         embedding_model: str = "minilm",
         embedding_mode: str = "local",
+        embedding_api_url: Optional[str] = None,
+        embedding_api_key: Optional[str] = None,
     ) -> list[dict]:
         """
         Full recommendation pipeline for a session.
@@ -495,15 +497,17 @@ class Recommender(BaseModel):
             website_id: Required for 'semantic' and 'hybrid' modes
             embedding_model: 'minilm' (384d) or 'qwen3' (2048d)
             embedding_mode: 'local' (GPU/CPU) or 'cloud' (API)
+            embedding_api_url: Optional API endpoint URL for cloud mode
+            embedding_api_key: Optional API key for cloud mode
 
         Returns:
             Ranked list of {page, score, base_similarity} dicts
         """
         if mode == "hybrid":
-            return self._hybrid_recommend(session_pages, session_features, top_k, semantic_weight, website_id, embedding_model, embedding_mode)
+            return self._hybrid_recommend(session_pages, session_features, top_k, semantic_weight, website_id, embedding_model, embedding_mode, embedding_api_url, embedding_api_key)
 
         if mode == "semantic" and SEMANTIC_AVAILABLE:
-            return self._semantic_recommend(session_pages, website_id or "", top_k, embedding_model, embedding_mode)
+            return self._semantic_recommend(session_pages, website_id or "", top_k, embedding_model, embedding_mode, embedding_api_url, embedding_api_key)
 
         # Default: token-based (GRU + pgvector)
         return self._token_recommend(session_pages, session_features, top_k)
@@ -541,6 +545,8 @@ class Recommender(BaseModel):
         top_k: int = 20,
         embedding_model: str = "minilm",
         embedding_mode: str = "local",
+        embedding_api_url: Optional[str] = None,
+        embedding_api_key: Optional[str] = None,
     ) -> list[dict]:
         """Semantic recommendation using configurable embedding model."""
         if not SEMANTIC_AVAILABLE:
@@ -556,10 +562,29 @@ class Recommender(BaseModel):
             last_text = semantic_embedder.embed_page_url(session_pages[-1])
             query_text = f"{last_text} [SEP] {query_text}"
 
-        candidates = semantic_embedder.retrieve_semantic_candidates(
-            query_text, website_id, top_k=top_k * 3, exclude=exclude,
-            model=embedding_model, mode=embedding_mode,
-        )
+        # Temporarily set env vars for cloud config if provided
+        old_url = os.environ.get("EMBEDDING_API_URL")
+        old_key = os.environ.get("EMBEDDING_API_KEY")
+        if embedding_api_url:
+            os.environ["EMBEDDING_API_URL"] = embedding_api_url
+        if embedding_api_key:
+            os.environ["EMBEDDING_API_KEY"] = embedding_api_key
+        
+        try:
+            candidates = semantic_embedder.retrieve_semantic_candidates(
+                query_text, website_id, top_k=top_k * 3, exclude=exclude,
+                model=embedding_model, mode=embedding_mode,
+            )
+        finally:
+            # Restore env vars
+            if old_url is not None:
+                os.environ["EMBEDDING_API_URL"] = old_url
+            elif embedding_api_url:
+                os.environ.pop("EMBEDDING_API_URL", None)
+            if old_key is not None:
+                os.environ["EMBEDDING_API_KEY"] = old_key
+            elif embedding_api_key:
+                os.environ.pop("EMBEDDING_API_KEY", None)
 
         if not candidates:
             return self._cold_start_recommend(top_k)
@@ -596,18 +621,18 @@ class Recommender(BaseModel):
         website_id: Optional[str] = None,
         embedding_model: str = "minilm",
         embedding_mode: str = "local",
+        embedding_api_url: Optional[str] = None,
+        embedding_api_key: Optional[str] = None,
     ) -> list[dict]:
         """
         Hybrid recommendation: fuses token-based + semantic scores.
-
-        Uses weighted score fusion to combine results from both modes.
         """
         token_weight = 1.0 - semantic_weight
 
         token_results = self._token_recommend(session_pages, session_features, top_k * 2)
         semantic_results = []
         if SEMANTIC_AVAILABLE:
-            semantic_results = self._semantic_recommend(session_pages, website_id or "", top_k * 2, embedding_model, embedding_mode)
+            semantic_results = self._semantic_recommend(session_pages, website_id or "", top_k * 2, embedding_model, embedding_mode, embedding_api_url, embedding_api_key)
 
         # If one mode returned nothing, use the other exclusively
         if not token_results:

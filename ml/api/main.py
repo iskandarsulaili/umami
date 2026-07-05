@@ -82,6 +82,8 @@ class RecommendRequest(BaseModel):
     semantic_weight: float = Field(default=0.6, ge=0.0, le=1.0)
     embedding_model: str = Field(default="minilm", pattern="^(minilm|qwen3)$")
     embedding_mode: str = Field(default="local", pattern="^(local|cloud)$")
+    embedding_api_url: Optional[str] = None
+    embedding_api_key: Optional[str] = None
 
 
 class TrainNextPageRequest(BaseModel):
@@ -354,6 +356,7 @@ async def recommend(req: RecommendRequest):
             req.session_pages, req.session_features, req.top_k,
             mode=req.mode, semantic_weight=req.semantic_weight, website_id=req.website_id,
             embedding_model=req.embedding_model, embedding_mode=req.embedding_mode,
+            embedding_api_url=req.embedding_api_url, embedding_api_key=req.embedding_api_key,
         )
         
         # Add AGE graph recommendations if available

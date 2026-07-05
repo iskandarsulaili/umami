@@ -136,20 +136,37 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const [recMode, setRecModeState] = useState<string>('token');
   const [embModel, setEmbModelState] = useState<string>('minilm');
   const [embMode, setEmbModeState] = useState<string>('local');
+  const [embApiUrl, setEmbApiUrlState] = useState<string>('');
+  const [embApiKey, setEmbApiKeyState] = useState<string>('');
+  const [showKey, setShowKey] = useState(false);
 
   // Initialize preferences from server, fall back to localStorage
   useEffect(() => {
-    const localRec = typeof window !== 'undefined' ? localStorage.getItem('umami_rec_mode') : null;
-    const localEmbModel = typeof window !== 'undefined' ? localStorage.getItem('umami_emb_model') : null;
-    const localEmbMode = typeof window !== 'undefined' ? localStorage.getItem('umami_emb_mode') : null;
-    if (localRec) setRecModeState(localRec);
-    if (localEmbModel) setEmbModelState(localEmbModel);
-    if (localEmbMode) setEmbModeState(localEmbMode);
+    const keys = ['umami_rec_mode', 'umami_emb_model', 'umami_emb_mode', 'umami_emb_api_url', 'umami_emb_api_key'];
+    const setters = {
+      umami_rec_mode: setRecModeState,
+      umami_emb_model: setEmbModelState,
+      umami_emb_mode: setEmbModeState,
+      umami_emb_api_url: setEmbApiUrlState,
+      umami_emb_api_key: setEmbApiKeyState,
+    };
+    const prefKeys = ['rec_mode', 'emb_model', 'emb_mode', 'emb_api_url', 'emb_api_key'];
 
-    // Fetch from server for authoritative values
-    get('/user/preferences?key=rec_mode').then(d => { if (d?.value) { setRecModeState(d.value); localStorage.setItem('umami_rec_mode', d.value); } }).catch(() => {});
-    get('/user/preferences?key=emb_model').then(d => { if (d?.value) { setEmbModelState(d.value); localStorage.setItem('umami_emb_model', d.value); } }).catch(() => {});
-    get('/user/preferences?key=emb_mode').then(d => { if (d?.value) { setEmbModeState(d.value); localStorage.setItem('umami_emb_mode', d.value); } }).catch(() => {});
+    // Load from localStorage first (instant)
+    for (const k of keys) {
+      const v = typeof window !== 'undefined' ? localStorage.getItem(k) : null;
+      if (v && setters[k]) setters[k](v);
+    }
+
+    // Then load from server (authoritative)
+    for (const pk of prefKeys) {
+      get(`/user/preferences?key=${pk}`).then(d => {
+        if (d?.value && setters[`umami_${pk}`]) {
+          setters[`umami_${pk}`](d.value);
+          localStorage.setItem(`umami_${pk}`, d.value);
+        }
+      }).catch(() => {});
+    }
   }, []);
 
   const setRecMode = (mode: string) => {
@@ -167,6 +184,16 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
     localStorage.setItem('umami_emb_mode', m);
     post('/user/preferences', { key: 'emb_mode', value: m }).catch(() => {});
   };
+  const setEmbApiUrl = (v: string) => {
+    setEmbApiUrlState(v);
+    localStorage.setItem('umami_emb_api_url', v);
+    post('/user/preferences', { key: 'emb_api_url', value: v }).catch(() => {});
+  };
+  const setEmbApiKey = (v: string) => {
+    setEmbApiKeyState(v);
+    localStorage.setItem('umami_emb_api_key', v);
+    post('/user/preferences', { key: 'emb_api_key', value: v }).catch(() => {});
+  };
 
   const loadInsights = useCallback(async () => {
     setLoading(true);
@@ -180,7 +207,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
       };
 
       const results = await Promise.allSettled([
-        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight: 0.6, embeddingModel: embModel, embeddingMode: embMode }),
+        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight: 0.6, embeddingModel: embModel, embeddingMode: embMode, embeddingApiUrl: embApiUrl, embeddingApiKey: embApiKey }),
         post('/ml/next-page', { websiteId, sessionPages: ['/'], topK: 10, useTransformer: false }),
         post('/ml/intent', { websiteId, sessionPages: ['/'], sessionFeatures: session }),
         post('/ml/funnel-drop', { websiteId, session, threshold: 0.5 }),
@@ -504,11 +531,24 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
               Cloud
             </Button>
           </Row>
+          {embMode === 'cloud' && (
+            <Row gap="2" paddingY="1" alignItems="center" wrap="wrap">
+              <Text size="xs" color="muted" transform="uppercase">API URL:</Text>
+              <input type="text" value={embApiUrl} onChange={e => setEmbApiUrl(e.target.value)} placeholder="https://api.together.xyz/v1"
+                style={{ flex: 1, minWidth: 200, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
+              <Text size="xs" color="muted" transform="uppercase">Key:</Text>
+              <input type={showKey ? 'text' : 'password'} value={embApiKey} onChange={e => setEmbApiKey(e.target.value)} placeholder="sk-..."
+                style={{ width: 200, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
+              <button onClick={() => setShowKey(!showKey)} style={{ padding: '4px 8px', fontSize: 12, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+                {showKey ? 'Hide' : 'Show'}
+              </button>
+            </Row>
+          )}
           <Row gap="1" paddingX="2" paddingBottom="1">
             <Text size="xs" color="muted">
               {embModel === 'minilm' ? 'all-MiniLM-L6-v2 (384d). Lightweight, local GPU/CPU always.' :
                embMode === 'local' ? 'Qwen3-embedding (4096d). ~2GB model, runs locally on GPU.' :
-               'Qwen3-embedding via API. Set EMBEDDING_API_URL + EMBEDDING_API_KEY in env.'}
+               'Qwen3-embedding via API. Configure URL + key above (stored per-user).'}
             </Text>
           </Row>
           <Grid columns={{ base: '1fr', md: '1fr 1fr' }} gap="3">

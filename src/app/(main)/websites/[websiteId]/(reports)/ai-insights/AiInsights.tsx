@@ -189,7 +189,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [websiteId, post]);
+  }, [websiteId, post, recMode]);
 
   useEffect(() => { loadInsights(); }, [loadInsights]);
 
@@ -437,13 +437,13 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
           </Row>
           <Row gap="1" paddingY="1" alignItems="center">
             <Text size="xs" color="muted" transform="uppercase">Rec Mode:</Text>
-            <Button variant={recMode === 'token' ? 'primary' : 'quiet'} onPress={() => { setRecMode('token'); loadInsights(); }}>
+            <Button variant={recMode === 'token' ? 'primary' : 'quiet'} onPress={() => setRecMode('token')}>
               Token
             </Button>
-            <Button variant={recMode === 'semantic' ? 'primary' : 'quiet'} onPress={() => { setRecMode('semantic'); loadInsights(); }}>
+            <Button variant={recMode === 'semantic' ? 'primary' : 'quiet'} onPress={() => setRecMode('semantic')}>
               Semantic
             </Button>
-            <Button variant={recMode === 'hybrid' ? 'primary' : 'quiet'} onPress={() => { setRecMode('hybrid'); loadInsights(); }}>
+            <Button variant={recMode === 'hybrid' ? 'primary' : 'quiet'} onPress={() => setRecMode('hybrid')}>
               Hybrid
             </Button>
           </Row>

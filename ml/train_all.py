@@ -11,7 +11,7 @@ import os
 import sys
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
@@ -45,7 +45,7 @@ def get_websites(db_url: str) -> list[str]:
 
 def train_for_website(website_id: str, days: int):
     """Train all models for a single website with rich features."""
-    end = datetime.utcnow()
+    end = datetime.now(timezone.utc)
     start = end - timedelta(days=days)
     
     logger.info(f"Training for website {website_id} ({days} days)...")
@@ -207,9 +207,31 @@ def train_for_website(website_id: str, days: int):
             click_sessions = []
             for row in cur.fetchall():
                 clicks_raw = row['clicks']
-                clicks = [{'x': c[0], 'y': c[1], 'page_x': c[2], 'page_y': c[3],
-                           'scroll_pct': c[4], 'viewport_w': c[5], 'viewport_h': c[6],
-                           'page_h': c[7], 'created_at': c[8]} for c in clicks_raw]
+                clicks = []
+                for c in clicks_raw:
+                    if c is None:
+                        continue
+                    # Handle both tuple and string representations from ROW() composite type
+                    if isinstance(c, (tuple, list)):
+                        fields = c
+                    elif isinstance(c, str):
+                        # Parse string like "(x,y,page_x,page_y,scroll_pct,viewport_w,viewport_h,page_h,created_at)"
+                        parts = c.strip('()').split(',')
+                        fields = parts
+                    else:
+                        continue
+                    if len(fields) < 9:
+                        continue
+                    try:
+                        clicks.append({
+                            'x': float(fields[0]), 'y': float(fields[1]),
+                            'page_x': float(fields[2]), 'page_y': float(fields[3]),
+                            'scroll_pct': float(fields[4]),
+                            'viewport_w': float(fields[5]), 'viewport_h': float(fields[6]),
+                            'page_h': float(fields[7]), 'created_at': fields[8],
+                        })
+                    except (ValueError, TypeError):
+                        continue
                 features = rc.extract_click_features(clicks)
                 if features:
                     click_sessions.append(features)

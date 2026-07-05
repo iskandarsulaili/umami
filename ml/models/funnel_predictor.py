@@ -92,7 +92,8 @@ class FunnelPredictor(BaseModel):
                 'window_completion_pct',
             ]
             for field in numeric_fields:
-                row.append(float(session.get(field, 0)))
+                val = session.get(field, 0)
+                row.append(float(val if val is not None else 0))
             
             # Categorical features (label encode)
             for field in cat_fields:
@@ -109,7 +110,8 @@ class FunnelPredictor(BaseModel):
             # Boolean features
             bool_fields = ['is_returning_visitor', 'has_performance_issues']
             for field in bool_fields:
-                row.append(float(session.get(field, 0)))
+                val = session.get(field, 0)
+                row.append(float(val if val is not None else 0))
             
             features.append(row)
         

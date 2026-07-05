@@ -86,7 +86,12 @@ def get_local_encoder(model: str, device: Optional[str] = None):
                 raise ImportError("sentence-transformers not installed: pip install sentence-transformers")
             dev = device or str(gpu_utils.DEVICE)
             logger.info(f"Loading Qwen3-embedding on {dev} (this may take a moment for first download)")
-            _qwen3_encoder = SentenceTransformer("Qwen/Qwen3-embedding", device=dev)
+            try:
+                _qwen3_encoder = SentenceTransformer("Qwen/Qwen3-embedding", device=dev)
+            except Exception as e:
+                logger.warning(f"Failed to load Qwen3-embedding locally: {e}. Falling back to MiniLM.")
+                logger.info("Loading all-MiniLM-L6-v2 as fallback")
+                _qwen3_encoder = SentenceTransformer("all-MiniLM-L6-v2", device=dev)
         return _qwen3_encoder
     else:
         # Default: all-MiniLM-L6-v2

@@ -484,6 +484,7 @@ class Recommender(BaseModel):
         embedding_mode: str = "local",
         embedding_api_url: Optional[str] = None,
         embedding_api_key: Optional[str] = None,
+        embedding_dim: Optional[int] = None,
     ) -> list[dict]:
         """
         Full recommendation pipeline for a session.
@@ -547,6 +548,7 @@ class Recommender(BaseModel):
         embedding_mode: str = "local",
         embedding_api_url: Optional[str] = None,
         embedding_api_key: Optional[str] = None,
+        embedding_dim: Optional[int] = None,
     ) -> list[dict]:
         """Semantic recommendation using configurable embedding model."""
         if not SEMANTIC_AVAILABLE:
@@ -565,10 +567,13 @@ class Recommender(BaseModel):
         # Temporarily set env vars for cloud config if provided
         old_url = os.environ.get("EMBEDDING_API_URL")
         old_key = os.environ.get("EMBEDDING_API_KEY")
+        old_dim = os.environ.get("EMBEDDING_DIM_QWEN3")
         if embedding_api_url:
             os.environ["EMBEDDING_API_URL"] = embedding_api_url
         if embedding_api_key:
             os.environ["EMBEDDING_API_KEY"] = embedding_api_key
+        if embedding_dim:
+            os.environ["EMBEDDING_DIM_QWEN3"] = str(embedding_dim)
         
         try:
             candidates = semantic_embedder.retrieve_semantic_candidates(
@@ -623,6 +628,7 @@ class Recommender(BaseModel):
         embedding_mode: str = "local",
         embedding_api_url: Optional[str] = None,
         embedding_api_key: Optional[str] = None,
+        embedding_dim: Optional[int] = None,
     ) -> list[dict]:
         """
         Hybrid recommendation: fuses token-based + semantic scores.

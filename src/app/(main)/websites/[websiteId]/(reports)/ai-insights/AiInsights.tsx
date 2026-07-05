@@ -141,11 +141,12 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const [embApiUrl, setEmbApiUrlState] = useState<string>('');
   const [embApiKey, setEmbApiKeyState] = useState<string>('');
   const [semanticWeight, setSemanticWeightState] = useState<number>(0.6);
+  const [embDim, setEmbDimState] = useState<number>(4096);
   const [showKey, setShowKey] = useState(false);
 
   // Initialize preferences from server, fall back to localStorage
   useEffect(() => {
-    const keys = ['umami_rec_mode', 'umami_emb_model', 'umami_emb_mode', 'umami_emb_api_url', 'umami_emb_api_key', 'umami_semantic_weight'];
+    const keys = ['umami_rec_mode', 'umami_emb_model', 'umami_emb_mode', 'umami_emb_api_url', 'umami_emb_api_key', 'umami_semantic_weight', 'umami_emb_dim'];
     const setters = {
       umami_rec_mode: setRecModeState,
       umami_emb_model: setEmbModelState,
@@ -153,8 +154,9 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
       umami_emb_api_url: setEmbApiUrlState,
       umami_emb_api_key: setEmbApiKeyState,
       umami_semantic_weight: (v: string) => setSemanticWeightState(parseFloat(v) || 0.6),
+      umami_emb_dim: (v: string) => setEmbDimState(parseInt(v) || 4096),
     };
-    const prefKeys = ['rec_mode', 'emb_model', 'emb_mode', 'emb_api_url', 'emb_api_key', 'semantic_weight'];
+    const prefKeys = ['rec_mode', 'emb_model', 'emb_mode', 'emb_api_url', 'emb_api_key', 'semantic_weight', 'emb_dim'];
 
     // Load from localStorage first (instant)
     for (const k of keys) {
@@ -198,6 +200,15 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
     localStorage.setItem('umami_emb_api_key', v);
     post('/user/preferences', { key: 'emb_api_key', value: v }).catch(() => {});
   };
+  const setEmbDim = (v: number) => {
+    if (embDim !== v && embDim > 0) {
+      const msg = `Changing Qwen3 dimension from ${embDim} to ${v}.\n\nExisting Qwen3 embeddings (${embDim}d) will NOT work with the new dimension (${v}d).\nClick "Sync Embeddings" after changing to regenerate.\n\nProceed?`;
+      if (!window.confirm(msg)) return;
+    }
+    setEmbDimState(v);
+    localStorage.setItem('umami_emb_dim', String(v));
+    post('/user/preferences', { key: 'emb_dim', value: String(v) }).catch(() => {});
+  };
   const setSemanticWeight = (v: number) => {
     setSemanticWeightState(v);
     localStorage.setItem('umami_semantic_weight', String(v));
@@ -216,7 +227,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
       };
 
       const results = await Promise.allSettled([
-        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight, embeddingModel: embModel, embeddingMode: embMode, embeddingApiUrl: embApiUrl, embeddingApiKey: embApiKey }),
+        post('/ml/recommend', { websiteId, sessionPages: [], sessionFeatures: {}, topK: 10, mode: recMode, semanticWeight, embeddingModel: embModel, embeddingMode: embMode, embeddingDim: embDim, embeddingApiUrl: embApiUrl, embeddingApiKey: embApiKey }),
         post('/ml/next-page', { websiteId, sessionPages: ['/'], topK: 10, useTransformer: false }),
         post('/ml/intent', { websiteId, sessionPages: ['/'], sessionFeatures: session }),
         post('/ml/funnel-drop', { websiteId, session, threshold: 0.5 }),
@@ -369,11 +380,11 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
             <Column gap="1">
               {recommendations.length > 0 ? recommendations.map((rec, i) => (
                 <Row key={i} gap="2" alignItems="center" paddingY="1" paddingX="2" borderRadius backgroundColor={i % 2 === 0 ? 'surface-raised' : undefined}>
-                  <Text weight="bold" color="primary" minWidth="24px">{i + 1}.</Text>
-                  <Column flex={1}>
+                  <Text weight="bold" color="primary">{i + 1}.</Text>
+                  <div style={{ flex: 1 }}>
                     <Text size="sm">{rec.page}</Text>
                     <Text size="xs" color="muted">{t(labels.similarity)}: {rec.score != null ? (rec.score * 100).toFixed(0) : '?'}%</Text>
-                  </Column>
+                  </div>
                 </Row>
               )) : <Text color="muted" size="sm">{t(labels.trainRecommender)}</Text>}
             </Column>
@@ -383,11 +394,11 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
             <Column gap="1">
               {nextPages.length > 0 ? nextPages.map((np, i) => (
                 <Row key={i} gap="2" alignItems="center" paddingY="1" paddingX="2" borderRadius backgroundColor={i % 2 === 0 ? 'surface-raised' : undefined}>
-                  <Text weight="bold" color="primary" minWidth="24px">{i + 1}.</Text>
-                  <Column flex={1}>
+                  <Text weight="bold" color="primary">{i + 1}.</Text>
+                  <div style={{ flex: 1 }}>
                     <Text size="sm">{np.page}</Text>
                     <Text size="xs" color="muted">{t(labels.probability)}: {np.probability != null ? (np.probability * 100).toFixed(1) : '?'}%</Text>
-                  </Column>
+                  </div>
                 </Row>
               )) : <Text color="muted" size="sm">{t(labels.trainNextPage)}</Text>}
             </Column>
@@ -449,11 +460,11 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
             <Column gap="1">
               {banditRecs.length > 0 ? banditRecs.map((br, i) => (
                 <Row key={i} gap="2" alignItems="center" paddingY="1" paddingX="2" borderRadius backgroundColor={i % 2 === 0 ? 'surface-raised' : undefined}>
-                  <Text weight="bold" color="primary" minWidth="24px">{i + 1}.</Text>
-                  <Column flex={1}>
+                  <Text weight="bold" color="primary">{i + 1}.</Text>
+                  <div style={{ flex: 1 }}>
                     <Text size="sm">{br.page}</Text>
                     <Text size="xs" color="muted">{t(labels.score)}: {br.score != null ? br.score.toFixed(3) : '?'} | {t(labels.pulls)}: {br.arm_stats?.n_pulls || 0}</Text>
-                  </Column>
+                  </div>
                 </Row>
               )) : <Text color="muted" size="sm">{t(labels.initBandit)}</Text>}
             </Column>
@@ -493,7 +504,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
             })}
           </Grid>
           {perfStats?.count != null && perfStats.count > 0 && (
-            <Text size="xs" color="muted" paddingTop="2">{t(labels.basedOnSamples, { n: perfStats.count })}</Text>
+            <div style={{ paddingTop: 8 }}><Text size="xs" color="muted">{t(labels.basedOnSamples, { n: perfStats.count })}</Text></div>
           )}
         </Panel>
 
@@ -577,7 +588,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
             <Button variant={embModel === 'qwen3' ? 'primary' : 'quiet'} onPress={() => switchModel('qwen3')}>
               Qwen3 (4096d)
             </Button>
-            <Text size="xs" color="muted" paddingX="1">|</Text>
+            <Text size="xs" color="muted" style={{ paddingLeft: 4, paddingRight: 4 }}>|</Text>
             <Text size="xs" color="muted" transform="uppercase">Mode:</Text>
             <Button variant={embMode === 'local' ? 'primary' : 'quiet'} onPress={() => switchMode('local')}>
               Local
@@ -594,9 +605,18 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
               <Text size="xs" color="muted" transform="uppercase">Key:</Text>
               <input type={showKey ? 'text' : 'password'} value={embApiKey} onChange={e => setEmbApiKey(e.target.value)} placeholder="sk-..."
                 style={{ width: 200, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
-              <button onClick={() => setShowKey(!showKey)} style={{ padding: '4px 8px', fontSize: 12, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+              <Button variant="quiet" onPress={() => setShowKey(!showKey)}>
                 {showKey ? 'Hide' : 'Show'}
-              </button>
+              </Button>
+            </Row>
+          )}
+          {embModel === 'qwen3' && (
+            <Row gap="2" paddingY="1" alignItems="center" wrap="wrap">
+              <Text size="xs" color="muted" transform="uppercase">Qwen3 Dim:</Text>
+              <input type="number" min="256" max="8192" step="128" value={embDim}
+                onChange={e => setEmbDim(parseInt(e.target.value) || 4096)}
+                style={{ width: 100, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
+              <Text size="xs" color="muted">Dimensions (default 4096)</Text>
             </Row>
           )}
           <Row gap="1" paddingX="2" paddingBottom="1">
@@ -634,7 +654,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
               <Text weight="bold" size="sm">{t(labels.models)}</Text>
               {mlHealth?.models ? Object.entries(mlHealth.models).map(([name, m]: [string, any]) => (
                 <Row key={name} gap="2" alignItems="center">
-                  <Text size="sm" color="muted" minWidth="180px">{name}</Text>
+                  <Text size="sm" color="muted" style={{ minWidth: 180 }}>{name}</Text>
                   <Text size="xs" color={m.trained ? 'success' : 'warning'}>{m.trained ? t(labels.trained) : t(labels.untrained)}</Text>
                 </Row>
               )) : <Text size="sm" color="muted">{t(labels.mlServiceNotAvailable)}</Text>}

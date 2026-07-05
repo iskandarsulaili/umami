@@ -24,6 +24,10 @@ export async function POST(request: Request) {
       embedding_model: embeddingModel || 'minilm',
       embedding_mode: embeddingMode || 'local',
     };
+    // Only send dim if qwen3 model
+    if (embeddingModel === 'qwen3' && body.embeddingDim) {
+      mlBody.embedding_dim = body.embeddingDim;
+    }
     // Only send URL/key if cloud mode is active
     if (embeddingMode === 'cloud') {
       if (embeddingApiUrl) mlBody.embedding_api_url = embeddingApiUrl;

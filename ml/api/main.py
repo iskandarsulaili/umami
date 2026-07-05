@@ -392,7 +392,7 @@ async def predict_rage_click(req: RageClickRequest):
 
     if req.session_id:
         result = rc.predict_session(req.session_id, req.website_id)
-    elif req.clicks:
+    elif req.clicks is not None:
         result = rc.predict(req.clicks)
     else:
         raise HTTPException(400, "Provide session_id or clicks array")
@@ -517,6 +517,8 @@ class SessionReplayRequest(BaseModel):
 @app.post("/predict/session-replay")
 async def predict_session_replay(req: SessionReplayRequest):
     """Analyze a session replay for UX frustration signals"""
+    if not req.session_id:
+        return {"website_id": req.website_id, "severity": "none", "error_loops": 0, "dead_clicks": 0, "form_struggles": 0, "rapid_navigation": 0, "total_events": 0}
     sr = get_session_replay()
     result = sr.analyze_session_from_db(req.session_id, req.website_id)
     return {"website_id": req.website_id, **result}

@@ -113,7 +113,7 @@ function perfRating(val: number, metric: string): { label: string; color: string
 
 export function AiInsights({ websiteId }: { websiteId: string }) {
   const { t, labels } = useMessages();
-  const { post } = useApi();
+  const { get, post } = useApi();
   const { dateRange: { startDate, endDate } } = useDateRange();
 
   const [loading, setLoading] = useState(true);
@@ -133,12 +133,29 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const [availablePages, setAvailablePages] = useState<string[]>([]);
   const [training, setTraining] = useState(false);
   const [trainResult, setTrainResult] = useState<string | null>(null);
-  const [recMode, setRecMode] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('umami_rec_mode') || 'token';
+  const [recMode, setRecModeState] = useState<string>('token');
+
+  // Initialize rec mode from server, fall back to localStorage, fall back to 'token'
+  useEffect(() => {
+    const local = typeof window !== 'undefined' ? localStorage.getItem('umami_rec_mode') : null;
+    if (local) {
+      setRecModeState(local);
     }
-    return 'token';
-  });
+    // Fetch from server for authoritative value (survives browser clear & server reboot)
+    get('/user/preferences?key=rec_mode').then(data => {
+      if (data?.value) {
+        setRecModeState(data.value);
+        if (typeof window !== 'undefined') localStorage.setItem('umami_rec_mode', data.value);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const setRecMode = (mode: string) => {
+    setRecModeState(mode);
+    if (typeof window !== 'undefined') localStorage.setItem('umami_rec_mode', mode);
+    // Persist to server (fire-and-forget)
+    post('/user/preferences', { key: 'rec_mode', value: mode }).catch(() => {});
+  };
 
   const loadInsights = useCallback(async () => {
     setLoading(true);

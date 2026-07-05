@@ -613,17 +613,17 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
           {embModel === 'qwen3' && (
             <Row gap="2" paddingY="1" alignItems="center" wrap="wrap">
               <Text size="xs" color="muted" transform="uppercase">Qwen3 Dim:</Text>
-              <input type="number" min="256" max="8192" step="128" value={embDim}
-                onChange={e => setEmbDim(parseInt(e.target.value) || 4096)}
+              <input type="number" min="32" max="1024" step="32" value={embDim}
+                onChange={e => setEmbDim(parseInt(e.target.value) || 1024)}
                 style={{ width: 100, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
-              <Text size="xs" color="muted">Dimensions (default 4096)</Text>
+              <Text size="xs" color="muted">Dimensions (0.6B: 32-1024, 8B: up to 4096)</Text>
             </Row>
           )}
           <Row gap="1" paddingX="2" paddingBottom="1">
             <Text size="xs" color="muted">
               {embModel === 'minilm' ? 'all-MiniLM-L6-v2 (384d). Lightweight, local GPU/CPU always.' :
-               embMode === 'local' ? 'Qwen3-embedding (4096d). ~2GB model, runs locally on GPU.' :
-               'Qwen3-embedding via API. Configure URL + key above (stored per-user).'}
+               embMode === 'local' ? 'Qwen3-Embedding-0.6B (up to 1024d, 32K context). ~600MB, gated model (set HF_TOKEN).' :
+               'Qwen3-Embedding via API. Configure URL + key above (stored per-user).'}
             </Text>
           </Row>
           <Grid columns={{ base: '1fr', md: '1fr 1fr' }} gap="3">

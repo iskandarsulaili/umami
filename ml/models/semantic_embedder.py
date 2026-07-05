@@ -56,9 +56,12 @@ _minilm_encoder = None
 _qwen3_encoder = None
 
 # Embedding dimensions per model (configurable via env vars)
+# Qwen3-Embedding-0.6B: 32-1024 (default 1024)
+# Qwen3-Embedding-4B:   32-2560
+# Qwen3-Embedding-8B:   32-4096
 EMBEDDING_DIMS = {
     'minilm': int(os.getenv('EMBEDDING_DIM_MINILM', '384')),
-    'qwen3': int(os.getenv('EMBEDDING_DIM_QWEN3', '4096')),
+    'qwen3': int(os.getenv('EMBEDDING_DIM_QWEN3', '1024')),
 }
 
 # Column names per model
@@ -87,7 +90,7 @@ def get_local_encoder(model: str, device: Optional[str] = None):
             dev = device or str(gpu_utils.DEVICE)
             logger.info(f"Loading Qwen3-embedding on {dev} (this may take a moment for first download)")
             try:
-                _qwen3_encoder = SentenceTransformer("Qwen/Qwen3-embedding", device=dev)
+                _qwen3_encoder = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B", device=dev, model_kwargs={"attn_implementation": "flash_attention_2"}, tokenizer_kwargs={"padding_side": "left"})
             except Exception as e:
                 logger.warning(f"Failed to load Qwen3-embedding locally: {e}. Falling back to MiniLM.")
                 logger.info("Loading all-MiniLM-L6-v2 as fallback")

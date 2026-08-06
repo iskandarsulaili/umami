@@ -19,6 +19,7 @@ Configuration (env vars):
 import os
 import json
 import logging
+import threading
 import numpy as np
 from typing import Optional
 from urllib.parse import unquote
@@ -55,6 +56,11 @@ from .. import gpu_utils
 
 # Cache for local encoder instances
 _encoder_cache: dict[str, SentenceTransformer] = {}
+
+# Guard for lazy encoder loading — SentenceTransformer init is expensive and NOT
+# thread-safe for concurrent double-load (TOCTOU race: two cold-cache requests
+# would both load the model). (audit: umami encoder cache race fix)
+_encoder_cache_lock = threading.Lock()
 
 # Default dimension if not configured
 DEFAULT_DIM = int(os.getenv('EMBEDDING_DIM', '384'))
@@ -108,14 +114,17 @@ def _embed_local(texts: list[str], model: str, device: Optional[str] = None) -> 
         raise ImportError("sentence-transformers not installed: pip install sentence-transformers")
 
     if model not in _encoder_cache:
-        dev = device or str(gpu_utils.DEVICE)
-        logger.info(f"Loading model '{model}' on {dev} (this may take a moment)")
-        try:
-            _encoder_cache[model] = SentenceTransformer(model, device=dev)
-        except Exception as e:
-            logger.warning(f"Failed to load '{model}': {e}, falling back to intfloat/multilingual-e5-small")
-            _encoder_cache[model] = SentenceTransformer("intfloat/multilingual-e5-small", device=dev)
-            model = "intfloat/multilingual-e5-small"
+        with _encoder_cache_lock:
+            # Double-checked locking: another thread may have loaded it while we waited.
+            if model not in _encoder_cache:
+                dev = device or str(gpu_utils.DEVICE)
+                logger.info(f"Loading model '{model}' on {dev} (this may take a moment)")
+                try:
+                    _encoder_cache[model] = SentenceTransformer(model, device=dev)
+                except Exception as e:
+                    logger.warning(f"Failed to load '{model}': {e}, falling back to intfloat/multilingual-e5-small")
+                    _encoder_cache[model] = SentenceTransformer("intfloat/multilingual-e5-small", device=dev)
+                    model = "intfloat/multilingual-e5-small"
 
     encoder = _encoder_cache[model]
     embeddings = encoder.encode(

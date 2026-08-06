@@ -19,11 +19,21 @@ export interface GoalProps {
   websiteId: string;
   startDate: Date;
   endDate: Date;
+  allowEdit?: boolean;
 }
 
 export type GoalData = { num: number; total: number };
 
-export function Goal({ id, name, type, parameters, websiteId, startDate, endDate }: GoalProps) {
+export function Goal({
+  id,
+  name,
+  type,
+  parameters,
+  websiteId,
+  startDate,
+  endDate,
+  allowEdit = true,
+}: GoalProps) {
   const { t, labels } = useMessages();
   const { pathname } = useNavigation();
   const isSharePage = pathname.includes('/share/');
@@ -47,7 +57,7 @@ export function Goal({ id, name, type, parameters, websiteId, startDate, endDate
                 </Text>
               </Row>
             </Column>
-            {!isSharePage && (
+            {allowEdit && !isSharePage && (
               <Column>
                 <ReportEditButton
                   id={id}
@@ -83,8 +93,8 @@ export function Goal({ id, name, type, parameters, websiteId, startDate, endDate
           <Row alignItems="center" gap="6">
             <ProgressBar
               value={data?.num || 0}
-              minValue={0}
-              maxValue={data?.total || 1}
+              min={0}
+              max={data?.total || 1}
               style={{ width: '100%' }}
             />
             <Text weight="bold" size="4xl">

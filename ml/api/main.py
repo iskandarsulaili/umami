@@ -80,7 +80,7 @@ class RecommendRequest(BaseModel):
     top_k: int = Field(default=20, ge=1, le=100)
     mode: str = Field(default="token", pattern="^(token|semantic|hybrid)$")
     semantic_weight: float = Field(default=0.6, ge=0.0, le=1.0)
-    embedding_model: str = Field(default="all-MiniLM-L6-v2")
+    embedding_model: str = Field(default="intfloat/multilingual-e5-small")
     embedding_mode: str = Field(default="local")
     embedding_api_url: Optional[str] = None
     embedding_api_key: Optional[str] = None
@@ -831,7 +831,7 @@ async def load_models():
 
 class EmbedSyncRequest(BaseModel):
     website_id: str
-    model: str = "all-MiniLM-L6-v2"
+    model: str = "intfloat/multilingual-e5-small"
     mode: str = "local"
 
 

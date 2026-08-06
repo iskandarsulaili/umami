@@ -136,7 +136,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [recMode, setRecModeState] = useState<string>('token');
-  const [embModel, setEmbModelState] = useState<string>('all-MiniLM-L6-v2');
+  const [embModel, setEmbModelState] = useState<string>('intfloat/multilingual-e5-small');
   const [embProvider, setEmbProviderState] = useState<string>('local');
   const [embApiUrl, setEmbApiUrlState] = useState<string>('');
   const [embApiKey, setEmbApiKeyState] = useState<string>('');
@@ -181,7 +181,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
     post('/user/preferences', { key: 'rec_mode', value: mode }).catch(() => {});
   };
   const setEmbModel = (m: string) => {
-    if (embModel !== m && embModel !== 'all-MiniLM-L6-v2') {
+    if (embModel !== m && embModel !== 'intfloat/multilingual-e5-small') {
       const msg = `Changing model from "${embModel}" to "${m}".\n\nExisting embeddings for "${embModel}" will NOT work with "${m}".\nClick "Sync Embeddings" after changing to regenerate.\n\nProceed?`;
       if (!window.confirm(msg)) return;
     }
@@ -602,7 +602,7 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
           <Row gap="1" paddingY="1" alignItems="center" wrap="wrap">
             <Text size="xs" color="muted" transform="uppercase">Model:</Text>
             <input type="text" value={embModel} onChange={e => setEmbModel(e.target.value)}
-              placeholder="all-MiniLM-L6-v2"
+              placeholder="intfloat/multilingual-e5-small"
               style={{ flex: 1, minWidth: 200, padding: '4px 8px', fontSize: 13, borderRadius: 4, border: '1px solid var(--border-color)', background: 'var(--surface)', color: 'var(--text)' }} />
           </Row>
           <Row gap="2" paddingY="1" alignItems="center" wrap="wrap">

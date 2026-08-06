@@ -65,7 +65,7 @@ class SessionIntentClassifier(BaseModel):
     2. Combine embeddings with session features into RandomForest/XGBoost
     
     Architecture:
-    - Text encoder: SentenceTransformer (all-MiniLM-L6-v2) on GPU
+    - Text encoder: SentenceTransformer (intfloat/multilingual-e5-small) on GPU
     - Tabular classifier: RandomForest/XGBoost on session features
     - Ensemble: weighted voting between text-based and feature-based predictions
     """
@@ -86,7 +86,7 @@ class SessionIntentClassifier(BaseModel):
             return None
         
         if self.text_encoder is None:
-            model_name = "all-MiniLM-L6-v2"  # 80MB, works on CPU, faster on GPU
+            model_name = "intfloat/multilingual-e5-small"  # 118MB, 384-dim, works on CPU, faster on GPU
             logger.info(f"Loading text encoder: {model_name} on {self.device}")
             self.text_encoder = SentenceTransformer(
                 model_name,

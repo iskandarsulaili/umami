@@ -9,7 +9,7 @@ Supports:
 - Cloud mode: any OpenAI-compatible API (user-provided URL + key)
 
 Configuration (env vars):
-  EMBEDDING_MODEL: any HF model name (default: all-MiniLM-L6-v2)
+  EMBEDDING_MODEL: any HF model name (default: intfloat/multilingual-e5-small)
   EMBEDDING_MODE: 'local', 'openai', 'gemini', or 'cloud'
   EMBEDDING_API_URL: e.g. https://api.openai.com/v1 or user URL
   EMBEDDING_API_KEY: API key for cloud provider
@@ -61,7 +61,7 @@ DEFAULT_DIM = int(os.getenv('EMBEDDING_DIM', '384'))
 
 # Provider-specific default models
 PROVIDER_DEFAULT_MODELS = {
-    'local': 'all-MiniLM-L6-v2',
+    'local': 'intfloat/multilingual-e5-small',
     'openai': 'text-embedding-3-small',
     'gemini': 'models/embedding-001',
     'cloud': '',  # Must be provided by user
@@ -70,12 +70,12 @@ PROVIDER_DEFAULT_MODELS = {
 
 def get_config() -> tuple[str, str, str, str]:
     """Get embedding configuration from environment."""
-    model_raw = os.getenv('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
+    model_raw = os.getenv('EMBEDDING_MODEL', 'intfloat/multilingual-e5-small')
 
     # Backward compat: if model is 'minilm' or 'qwen3', resolve
     model = model_raw.lower()
     if model == 'minilm':
-        model = 'all-MiniLM-L6-v2'
+        model = 'intfloat/multilingual-e5-small'
     elif model == 'qwen3':
         model = os.getenv('EMBEDDING_MODEL_QWEN3', 'Qwen/Qwen3-Embedding-0.6B')
 
@@ -113,9 +113,9 @@ def _embed_local(texts: list[str], model: str, device: Optional[str] = None) -> 
         try:
             _encoder_cache[model] = SentenceTransformer(model, device=dev)
         except Exception as e:
-            logger.warning(f"Failed to load '{model}': {e}, falling back to all-MiniLM-L6-v2")
-            _encoder_cache[model] = SentenceTransformer("all-MiniLM-L6-v2", device=dev)
-            model = "all-MiniLM-L6-v2"
+            logger.warning(f"Failed to load '{model}': {e}, falling back to intfloat/multilingual-e5-small")
+            _encoder_cache[model] = SentenceTransformer("intfloat/multilingual-e5-small", device=dev)
+            model = "intfloat/multilingual-e5-small"
 
     encoder = _encoder_cache[model]
     embeddings = encoder.encode(
@@ -271,7 +271,7 @@ def embed_text(texts: list[str], model: Optional[str] = None, mode: Optional[str
     except Exception as e:
         logger.warning(f"{mode}/{model} embedding failed: {e}, falling back to local")
         try:
-            return _embed_local(texts, 'all-MiniLM-L6-v2', device)
+            return _embed_local(texts, 'intfloat/multilingual-e5-small', device)
         except Exception as e2:
             logger.error(f"Fallback embedding failed: {e2}")
             raise
@@ -303,6 +303,8 @@ def get_modelled_column(model: str) -> str:
     alias_map = {
         'all_minilm_l6_v2': 'semantic_embedding',
         'all-minilm-l6-v2': 'semantic_embedding',
+        'intfloat_multilingual_e5_small': 'semantic_embedding',
+        'intfloat/multilingual-e5-small': 'semantic_embedding',
         'text_embedding_3_small': 'embedding',
         'text_embedding_3_large': 'embedding',
     }
@@ -354,13 +356,16 @@ def sync_semantic_embeddings(
         conn = psycopg2.connect(db_url)
         cur = conn.cursor()
         count = 0
+        # Pick the storage column based on the model (384-dim models -> semantic_embedding,
+        # 4096-dim / cloud models -> embedding). Keeps e5/MiniLM compatible with existing rows.
+        col = get_modelled_column(model)
         for page_url, emb in zip(page_urls, embeddings):
             emb_str = "[" + ",".join(f"{v:.6f}" for v in emb) + "]"
-            cur.execute("""
-                INSERT INTO page_embeddings (website_id, page_url, embedding, model_name, updated_at)
+            cur.execute(f"""
+                INSERT INTO page_embeddings (website_id, page_url, {col}, model_name, updated_at)
                 VALUES (%s, %s, %s::vector, %s, NOW())
                 ON CONFLICT (website_id, page_url)
-                DO UPDATE SET embedding = %s::vector, model_name = %s, updated_at = NOW()
+                DO UPDATE SET {col} = %s::vector, model_name = %s, updated_at = NOW()
             """, (website_id, page_url, emb_str, model, emb_str, model))
             count += 1
         conn.commit()
@@ -420,6 +425,7 @@ def retrieve_semantic_candidates(
         cur = conn.cursor()
 
         exclude_clause = ""
+        col = get_modelled_column(model_resolved)
         params = [emb_str, website_id, model_resolved, emb_str, top_k]
         if exclude:
             placeholders = ", ".join(f"%s" for _ in exclude)
@@ -427,13 +433,13 @@ def retrieve_semantic_candidates(
             params = [emb_str, website_id, model_resolved, emb_str] + list(exclude) + [top_k]
 
         query = f"""
-            SELECT page_url, 1 - (embedding <=> %s::vector) AS similarity
+            SELECT page_url, 1 - ({col} <=> %s::vector) AS similarity
             FROM page_embeddings
             WHERE website_id = %s
               AND model_name = %s
-              AND embedding IS NOT NULL
+              AND {col} IS NOT NULL
               {exclude_clause}
-            ORDER BY embedding <=> %s::vector
+            ORDER BY {col} <=> %s::vector
             LIMIT %s
         """
         cur.execute(query, params)

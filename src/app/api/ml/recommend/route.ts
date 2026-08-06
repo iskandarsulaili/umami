@@ -21,7 +21,7 @@ export async function POST(request: Request) {
       top_k: topK || 20,
       mode: mode || 'token',
       semantic_weight: semanticWeight ?? 0.6,
-      embedding_model: embeddingModel || 'all-MiniLM-L6-v2',
+      embedding_model: embeddingModel || 'intfloat/multilingual-e5-small',
       embedding_mode: embeddingMode || 'local',
       embedding_dim: embeddingDim || 1024,
       embedding_api_url: embeddingApiUrl || null,

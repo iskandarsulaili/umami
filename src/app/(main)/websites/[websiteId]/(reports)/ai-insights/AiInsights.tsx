@@ -324,10 +324,6 @@ export function AiInsights({ websiteId }: { websiteId: string }) {
     }
   };
 
-  const switchMode = (newMode: string) => {
-    setEmbMode(newMode);
-  };
-
   const trainedCount = mlHealth?.models ? Object.values(mlHealth.models).filter((m: any) => m.trained).length : 0;
   const totalModels = mlHealth?.models ? Object.keys(mlHealth.models).length : 0;
   const gpuDevices = mlHealth?.gpu?.devices || [];
